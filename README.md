@@ -18,6 +18,10 @@ npx -y @autoaiai/aicut@latest open https://github.com/autoaiai/aicut-examples/tr
 
 Each folder is self-contained: `film.html` is the cut, everything else is what it pulls in. Point Studio at the folder and it plays.
 
+Each folder keeps a `poster.jpg` beside its `film.html`: one frame of the film, 960 px wide. That is the picture
+Studio's Templates page shows for it, and the table above is what it says about it — so a new example is a folder
+with a `film.html`, a `poster.jpg` and a row here, listed in the order the rows are.
+
 ## pixel-odyssey
 
 A pixel-art platformer title sequence — five scenes cut together in `film.html`.

@@ -1,4 +1,4 @@
 node_modules/
 .film/
-tools/bin/
-tools/ffmpeg.zip
+**/tools/bin/
+**/tools/ffmpeg.zip

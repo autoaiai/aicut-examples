@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, height=1080">
+<link rel="stylesheet" href="_flat.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="kicker">Rayleigh · 05 / 日落</div>
+<div class="rule" style="top:156px"></div>
+<div class="pageno">05 / 06</div>
+<h1 class="h1" style="top:190px">穿过的大气越厚，蓝光散得越干净</h1>
+<p class="sub" style="top:292px">日落时光程是正午的几十倍，短波在半路就被筛掉了</p>
+<p class="take take-top" style="top:396px">天空的颜色，是光被筛过之后剩下的</p>
+<div class="foot" style="color:#48566A"><span>FIG.5 正午与日落的光程（示意，未按比例）</span><span>天顶角 0° / 90°</span></div>
+<script src="_flat.js"></script>
+<script>
+  const { g, begin } = FLAT.canvas();
+  const { prog, linear, easeOut, C, mono } = FLAT;
+
+  const CX = 960, CY = 2500, RE = 1500, RA = 1800;
+  const RAY_Y = 980;
+  const SEGS = [
+    { x1: 0, x2: 340, c: '#FFFFFF' },
+    { x1: 340, x2: 660, c: C.amber },
+    { x1: 660, x2: 960, c: C.red },
+  ];
+
+  const drops = [];
+  const T0 = 1.42, T1 = 3.28;
+  for (let i = 0; i < 18; i++) {
+    const x = 70 + i * 48;
+    drops.push({
+      x,
+      th: T0 + (x / 960) * (T1 - T0) + 0.05,
+      up: 58 + FLAT.hash('u' + i) * 46,
+      back: 12 + FLAT.hash('b' + i) * 26,
+    });
+  }
+
+  const h1 = document.querySelector('.h1');
+  const sub = document.querySelector('.sub');
+  const take = document.querySelector('.take');
+  const kick = document.querySelector('.kicker');
+  const pno = document.querySelector('.pageno');
+  const rule = document.querySelector('.rule');
+  const foot = document.querySelector('.foot');
+
+  const circle = (r, fill) => {
+    g.fillStyle = fill;
+    g.beginPath(); g.arc(CX, CY, r, 0, Math.PI * 2); g.fill();
+  };
+
+  window.film = {
+    duration: 5.5,
+    ready: document.fonts.ready,
+    frame(t) {
+      begin();
+
+      const ap = prog(t, -0.2, 0.45);
+      g.globalAlpha = ap;
+      circle(RA, C.band);
+      circle(RE, C.ink);
+      g.globalAlpha = 1;
+
+      // 正午：垂直入射，只穿过 1 份大气
+      const np = prog(t, 0.65, 0.75, linear);
+      if (np > 0) {
+        const ye = 460 + (1000 - 460) * np;
+        g.strokeStyle = 'rgba(23,32,46,0.45)';
+        g.lineWidth = 17;
+        g.lineCap = 'butt';
+        g.beginPath(); g.moveTo(960, 460); g.lineTo(960, ye); g.stroke();
+        g.strokeStyle = '#FFFFFF';
+        g.lineWidth = 13;
+        g.beginPath(); g.moveTo(960, 460); g.lineTo(960, ye); g.stroke();
+      }
+
+      // 日落：沿地表切过，光程极长
+      const sp = prog(t, T0, T1 - T0, linear);
+      if (sp > 0) {
+        const head = 960 * sp;
+        g.strokeStyle = 'rgba(23,32,46,0.45)';
+        g.lineWidth = 18;
+        g.lineCap = 'butt';
+        g.beginPath(); g.moveTo(0, RAY_Y); g.lineTo(head, RAY_Y); g.stroke();
+        for (const s of SEGS) {
+          if (head <= s.x1) break;
+          g.strokeStyle = s.c;
+          g.lineWidth = 14;
+          g.beginPath();
+          g.moveTo(s.x1, RAY_Y);
+          g.lineTo(Math.min(head, s.x2), RAY_Y);
+          g.stroke();
+        }
+      }
+
+      // 被筛掉的蓝光：一路向上散掉
+      for (const d of drops) {
+        const p = prog(t, d.th, 0.55, easeOut);
+        if (p <= 0 || p >= 1) continue;
+        g.globalAlpha = (1 - p) * 0.85;
+        g.fillStyle = C.blue;
+        g.beginPath();
+        g.arc(d.x - d.back * p, RAY_Y - d.up * p, 4.6 * (1 - 0.35 * p), 0, Math.PI * 2);
+        g.fill();
+        g.globalAlpha = 1;
+      }
+
+      // 观测点
+      if (sp > 0.98) {
+        g.fillStyle = C.amber;
+        g.beginPath(); g.arc(960, 999, 11, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = C.ink;
+        g.lineWidth = 3;
+        g.stroke();
+      }
+
+      const l1 = prog(t, 2.35, 0.5);
+      if (l1 > 0) {
+        g.globalAlpha = l1;
+        mono(g, 24, C.ink, 'left');
+        g.fillText('正午', 1000, 468);
+        mono(g, 18, C.ink2, 'left');
+        g.fillText('穿过 1 份大气', 1000, 500);
+        g.globalAlpha = 1;
+      }
+      const l2 = prog(t, 3.0, 0.5);
+      if (l2 > 0) {
+        g.globalAlpha = l2;
+        mono(g, 24, C.ink, 'left');
+        g.fillText('日落', 150, 924);
+        mono(g, 18, C.ink2, 'left');
+        g.fillText('穿过约 38 份大气', 150, 956);
+        g.globalAlpha = 1;
+      }
+
+      kick.style.opacity = String(prog(t, -0.25, 0.45));
+      rule.style.opacity = String(prog(t, -0.25, 0.45));
+      pno.style.opacity = String(prog(t, -0.25, 0.45));
+      const a1 = prog(t, -0.15, 0.75);
+      h1.style.opacity = String(a1);
+      h1.style.transform = `translateY(${(1 - a1) * 20}px)`;
+      const a2 = prog(t, 0.2, 0.7);
+      sub.style.opacity = String(a2 * 0.95);
+      sub.style.transform = `translateY(${(1 - a2) * 14}px)`;
+      const a3 = prog(t, 3.75, 0.6);
+      take.style.opacity = String(a3 * 0.98);
+      take.style.transform = `translateY(${(1 - a3) * 12}px)`;
+      foot.style.opacity = String(prog(t, 0.1, 0.6));
+    },
+  };
+</script>
+</body>
+</html>

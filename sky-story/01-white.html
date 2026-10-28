@@ -1,0 +1,119 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, height=1080">
+<link rel="stylesheet" href="_flat.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="kicker">Rayleigh · 01 / 白光</div>
+<div class="rule" style="top:156px"></div>
+<div class="pageno">01 / 06</div>
+<h1 class="h1">阳光看起来是白的</h1>
+<p class="sub">其实是 400 到 700 纳米混在一起</p>
+<p class="take">白光不是一种颜色，是一段波长</p>
+<div class="foot"><span>FIG.1 白光经棱镜分离</span><span>可见光 400–700 nm</span></div>
+<script src="_flat.js"></script>
+<script>
+  const { g, begin } = FLAT.canvas();
+  const { prog, polyProg, easeInOut, easeOut, C, mono } = FLAT;
+
+  const APEX = [900, 440], BL = [780, 740], BR = [1020, 740];
+  const EXIT = [972, 620];
+  const BANDS = [
+    { c: C.red, y: 470, nm: '700 nm' },
+    { c: C.amber, y: 532, nm: '600 nm' },
+    { c: C.green, y: 600, nm: '530 nm' },
+    { c: C.blue, y: 684, nm: '450 nm' },
+    { c: C.violet, y: 792, nm: '400 nm' },
+  ];
+
+  const h1 = document.querySelector('.h1');
+  const sub = document.querySelector('.sub');
+  const take = document.querySelector('.take');
+  const kick = document.querySelector('.kicker');
+  const pno = document.querySelector('.pageno');
+  const rule = document.querySelector('.rule');
+  const foot = document.querySelector('.foot');
+
+  function beam(x2) {
+    if (x2 <= 140.5) return;
+    FLAT.litLine(g, 140, 620, x2, 620, 20, '#FFFFFF');
+  }
+
+  window.film = {
+    duration: 5.5,
+    ready: document.fonts.ready,
+    frame(t) {
+      begin();
+
+      beam(140 + (EXIT[0] - 140) * prog(t, 0.15, 0.85, FLAT.linear));
+
+      // 棱镜：先描边，再补底色
+      const pp = prog(t, 0.7, 0.75, easeInOut);
+      if (pp > 0) {
+        const pts = polyProg([BL, APEX, BR, BL], pp);
+        if (pts.length > 1) {
+          g.strokeStyle = C.ink;
+          g.lineWidth = 3;
+          g.beginPath();
+          pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+          g.stroke();
+        }
+        const fa = prog(t, 1.05, 0.5) * 0.055;
+        if (fa > 0) {
+          g.fillStyle = `rgba(23,32,46,${fa})`;
+          g.beginPath();
+          g.moveTo(BL[0], BL[1]); g.lineTo(APEX[0], APEX[1]); g.lineTo(BR[0], BR[1]);
+          g.closePath(); g.fill();
+        }
+      }
+
+      // 五条色带
+      BANDS.forEach((b, i) => {
+        const p = prog(t, 1.42 + i * 0.17, 0.62, easeOut);
+        if (p > 0) {
+          const ex = EXIT[0] + (1660 - EXIT[0]) * p;
+          const ey = EXIT[1] + (b.y - EXIT[1]) * p;
+          g.strokeStyle = b.c;
+          g.lineWidth = 15;
+          g.lineCap = 'butt';
+          g.beginPath(); g.moveTo(EXIT[0], EXIT[1]); g.lineTo(ex, ey); g.stroke();
+        }
+        const lp = prog(t, 2.5 + i * 0.1, 0.4);
+        if (lp > 0) {
+          g.globalAlpha = lp;
+          mono(g, 21, C.ink2, 'left');
+          g.fillText(b.nm, 1684, b.y + 1);
+          g.globalAlpha = 1;
+        }
+      });
+
+      // 入射的白光标签
+      const wl = prog(t, 0.5, 0.5);
+      if (wl > 0) {
+        g.globalAlpha = wl;
+        mono(g, 20, C.ink3, 'left');
+        g.fillText('白光', 140, 592);
+        g.globalAlpha = 1;
+      }
+
+      kick.style.opacity = String(prog(t, -0.25, 0.45));
+      rule.style.opacity = String(prog(t, -0.25, 0.45));
+      pno.style.opacity = String(prog(t, -0.25, 0.45));
+      const a1 = prog(t, -0.15, 0.75);
+      h1.style.opacity = String(a1);
+      h1.style.transform = `translateY(${(1 - a1) * 20}px)`;
+      const a2 = prog(t, 0.2, 0.7);
+      sub.style.opacity = String(a2 * 0.95);
+      sub.style.transform = `translateY(${(1 - a2) * 14}px)`;
+      const a3 = prog(t, 3.25, 0.6);
+      take.style.opacity = String(a3 * 0.98);
+      take.style.transform = `translateY(${(1 - a3) * 12}px)`;
+      foot.style.opacity = String(prog(t, 0.1, 0.6));
+    },
+  };
+</script>
+</body>
+</html>

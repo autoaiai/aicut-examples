@@ -1,0 +1,157 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, height=1080">
+<link rel="stylesheet" href="_flat.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="kicker" style="color:#5C6E80">Rayleigh · 04 / 天空</div>
+<div class="rule" style="top:156px;background:rgba(23,32,46,0.14)"></div>
+<div class="pageno" style="color:#5C6E80">04 / 06</div>
+<h1 class="h1">四面八方散来的蓝，填满了天空</h1>
+<p class="sub">紫光散得更多，但阳光里紫光少，眼睛也不敏感</p>
+<p class="take">你看到的蓝，不来自太阳，来自整片天空</p>
+<div class="foot" style="color:#5C6E80"><span>FIG.4 抵达眼睛的短波光，来自全部天顶方向</span><span>蓝 450 nm · 紫 400 nm</span></div>
+<script src="_flat.js"></script>
+<script>
+  const { g, begin } = FLAT.canvas();
+  const { prog, hash, easeOut, C, mono } = FLAT;
+
+  const EYE = [1120, 790];
+  const SUN = [1650, 240];
+  const SUNR = 84;
+
+  const dots = [];
+  for (let i = 0; i < 240 && dots.length < 132; i++) {
+    const x = 70 + hash('x' + i) * 1780;
+    const y = 340 + hash('y' + i) * 520;
+    if (x < 1330 && y < 415) continue;
+    if (Math.hypot(x - EYE[0], y - EYE[1]) < 150) continue;
+    dots.push({
+      x, y,
+      r: 3.2 + hash('r' + i) * 5.4,
+      a: 0.22 + hash('a' + i) * 0.62,
+      d: 0.1 + hash('d' + i) * 1.35,
+    });
+  }
+
+  const pick = [];
+  for (let i = 4; i < dots.length; i += 8) if (pick.length < 15) pick.push(dots[i]);
+
+  const h1 = document.querySelector('.h1');
+  const sub = document.querySelector('.sub');
+  const take = document.querySelector('.take');
+  const kick = document.querySelector('.kicker');
+  const pno = document.querySelector('.pageno');
+  const rule = document.querySelector('.rule');
+  const foot = document.querySelector('.foot');
+
+  window.film = {
+    duration: 5.5,
+    ready: document.fonts.ready,
+    frame(t) {
+      begin();
+
+      g.fillStyle = C.sky;
+      g.fillRect(0, 0, 1920, 1080);
+
+      // 太阳（纯平，无光晕）
+      const sp = prog(t, 0.1, 0.6, easeOut);
+      if (sp > 0) {
+        g.fillStyle = C.amber;
+        g.beginPath();
+        g.arc(SUN[0], SUN[1], SUNR * (0.82 + 0.18 * sp), 0, Math.PI * 2);
+        g.fill();
+      }
+
+      // 直射的阳光
+      const rp = prog(t, 0.75, 0.7);
+      if (rp > 0) {
+        const dx = EYE[0] - SUN[0], dy = EYE[1] - SUN[1];
+        const L = Math.hypot(dx, dy);
+        const ux = dx / L, uy = dy / L;
+        const x1 = SUN[0] + ux * SUNR, y1 = SUN[1] + uy * SUNR;
+        const x2 = SUN[0] + ux * (SUNR + (L - SUNR - 46) * rp);
+        const y2 = SUN[1] + uy * (SUNR + (L - SUNR - 46) * rp);
+        FLAT.litLine(g, x1, y1, x2, y2, 13, '#FFFFFF');
+      }
+
+      // 被散射的蓝点
+      for (const d of dots) {
+        const p = prog(t, d.d, 0.5, easeOut);
+        if (p <= 0) continue;
+        g.globalAlpha = p * d.a;
+        g.fillStyle = C.blue;
+        g.beginPath();
+        g.arc(d.x, d.y, d.r * (0.6 + 0.4 * p), 0, Math.PI * 2);
+        g.fill();
+        g.globalAlpha = 1;
+      }
+
+      // 从四面八方射向眼睛的箭头
+      g.strokeStyle = C.blue;
+      g.fillStyle = C.blue;
+      pick.forEach((d, i) => {
+        const p = prog(t, 1.75 + i * 0.085, 0.42, easeOut);
+        if (p <= 0) return;
+        const dx = EYE[0] - d.x, dy = EYE[1] - d.y;
+        const L = Math.hypot(dx, dy);
+        const ux = dx / L, uy = dy / L;
+        const x1 = d.x + ux * 30, y1 = d.y + uy * 30;
+        const len = 130 * p;
+        FLAT.arrow(g, x1, y1, x1 + ux * len, y1 + uy * len, 2.6, 13);
+      });
+
+      // 眼睛
+      const ep = prog(t, 1.2, 0.55, easeOut);
+      if (ep > 0) {
+        const [ex, ey] = EYE;
+        g.save();
+        g.globalAlpha = ep;
+        g.beginPath();
+        g.moveTo(ex - 64, ey);
+        g.quadraticCurveTo(ex, ey - 54, ex + 64, ey);
+        g.quadraticCurveTo(ex, ey + 54, ex - 64, ey);
+        g.closePath();
+        g.fillStyle = '#FFFFFF';
+        g.fill();
+        g.strokeStyle = C.ink;
+        g.lineWidth = 4.5;
+        g.stroke();
+        g.fillStyle = C.ink;
+        g.beginPath(); g.arc(ex, ey, 16, 0, Math.PI * 2); g.fill();
+        g.restore();
+      }
+
+      // 直射光的标注
+      const dp = prog(t, 1.9, 0.45);
+      if (dp > 0) {
+        g.globalAlpha = dp;
+        mono(g, 20, C.ink2, 'right');
+        g.fillText('直射的阳光', 1268, 556);
+        g.strokeStyle = C.ink2;
+        g.lineWidth = 1.6;
+        g.beginPath(); g.moveTo(1274, 566); g.lineTo(1300, 592); g.stroke();
+        g.globalAlpha = 1;
+      }
+
+      kick.style.opacity = String(prog(t, -0.25, 0.45));
+      rule.style.opacity = String(prog(t, -0.25, 0.45));
+      pno.style.opacity = String(prog(t, -0.25, 0.45));
+      const a1 = prog(t, -0.15, 0.75);
+      h1.style.opacity = String(a1);
+      h1.style.transform = `translateY(${(1 - a1) * 20}px)`;
+      const a2 = prog(t, 3.7, 0.7);
+      sub.style.opacity = String(a2 * 0.95);
+      sub.style.transform = `translateY(${(1 - a2) * 14}px)`;
+      const a3 = prog(t, 4.25, 0.6);
+      take.style.opacity = String(a3 * 0.98);
+      take.style.transform = `translateY(${(1 - a3) * 12}px)`;
+      foot.style.opacity = String(prog(t, 0.1, 0.6));
+    },
+  };
+</script>
+</body>
+</html>

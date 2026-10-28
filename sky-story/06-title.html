@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, height=1080">
+<link rel="stylesheet" href="_flat.css">
+<style>
+  .title { position: absolute; left: 138px; top: 372px; margin: 0; font-size: 132px; font-weight: 700;
+           letter-spacing: -0.015em; line-height: 1; }
+  .bar { position: absolute; left: 140px; top: 566px; height: 4px; background: var(--amber); width: 0; }
+  .meta { position: absolute; left: 140px; top: 612px; margin: 0; font: 400 26px/1.7 "IBM Plex Mono", Consolas, monospace;
+          color: var(--ink2); letter-spacing: 0.02em; }
+  .credit { position: absolute; left: 140px; bottom: 96px; font: 400 20px/1 "IBM Plex Mono", Consolas, monospace;
+            color: var(--ink3); letter-spacing: 0.14em; }
+  .dot { position: absolute; right: 160px; top: 470px; width: 172px; height: 172px; border-radius: 50%;
+         background: var(--blue); }
+  .dot2 { position: absolute; right: 246px; top: 556px; width: 172px; height: 172px; border-radius: 50%;
+          background: var(--red); mix-blend-mode: multiply; }
+</style>
+</head>
+<body>
+<h1 class="title">天空为什么是蓝的</h1>
+<div class="bar" id="bar"></div>
+<p class="meta">瑞利散射 · 散射强度 ∝ 1 / λ⁴<br>短波被筛掉，剩下的就是天空的颜色</p>
+<div class="credit">AICUT · 扁平矢量科普 · 30 s</div>
+<div class="dot" id="d1"></div>
+<div class="dot2" id="d2"></div>
+<script src="_flat.js"></script>
+<script>
+  const { prog, easeInOut, easeOut } = FLAT;
+  const title = document.querySelector('.title');
+  const bar = document.querySelector('#bar');
+  const meta = document.querySelector('.meta');
+  const credit = document.querySelector('.credit');
+  const d1 = document.querySelector('#d1');
+  const d2 = document.querySelector('#d2');
+
+  window.film = {
+    duration: 2.5,
+    ready: document.fonts.ready,
+    frame(t) {
+      const a = prog(t, -0.1, 0.65, easeOut);
+      title.style.opacity = String(a);
+      title.style.transform = `translateY(${(1 - a) * 26}px)`;
+
+      const b = prog(t, 0.3, 0.5, easeInOut);
+      bar.style.width = `${520 * b}px`;
+
+      const c = prog(t, 0.6, 0.55);
+      meta.style.opacity = String(c);
+      meta.style.transform = `translateY(${(1 - c) * 12}px)`;
+
+      const d = prog(t, 0.15, 0.6, easeOut);
+      d1.style.opacity = String(d);
+      d2.style.opacity = String(d);
+      d1.style.transform = `scale(${0.86 + 0.14 * d})`;
+      d2.style.transform = `scale(${0.86 + 0.14 * d})`;
+
+      credit.style.opacity = String(prog(t, 0.9, 0.5) * 0.9);
+    },
+  };
+</script>
+</body>
+</html>

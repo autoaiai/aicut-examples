@@ -1,0 +1,566 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, height=1080">
+<link rel="stylesheet" href="_shadow.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+/* 皮影剧场 · 月相 —— 一块透光布，一盏灯，几片打了孔的皮子。
+   管线：灯照布 → 影子层（黑皮，孔是透光的）→ 光层（透出来的光，加色）→ 布纹 → 布面反光 → 颗粒 → 暗角。 */
+(() => {
+  const W = 1920, HT = 1080, TAU = Math.PI * 2, RAD = Math.PI / 180;
+  const INK = 'rgb(20,8,4)';
+  const FONT = '"KaiTi","STKaiti","SimSun","Noto Serif SC",serif';
+
+  /* ---------- 确定性工具 ---------- */
+  const clamp = (v, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
+  const lerp = (a, b, p) => a + (b - a) * p;
+  const sm = (e0, e1, x) => { const u = clamp((x - e0) / (e1 - e0)); return u * u * (3 - 2 * u); };
+  const EO = (p) => (p <= 0 ? 0 : p >= 1 ? 1 : 1 - Math.pow(2, -10 * p));
+  const EIO = (p) => (p <= 0 ? 0 : p >= 1 ? 1 : p < 0.5
+    ? Math.pow(2, 20 * p - 10) / 2 : (2 - Math.pow(2, -20 * p + 10)) / 2);
+  const rgb = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+
+  const rng = (seed) => {
+    let a = seed >>> 0;
+    return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  };
+  const nz = (seed) => {
+    const h = (x, y) => { const s = Math.sin(x * 127.1 + y * 311.7 + seed * 0.017) * 43758.5453; return s - Math.floor(s); };
+    return (x, y) => {
+      const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+      const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+      return (h(xi, yi) * (1 - u) + h(xi + 1, yi) * u) * (1 - v) + (h(xi, yi + 1) * (1 - u) + h(xi + 1, yi + 1) * u) * v;
+    };
+  };
+  const NZ = nz(4242);
+
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+  let dpr = 1;
+  const fit = () => {
+    dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(1920 * dpr); cv.height = Math.round(1080 * dpr);
+  };
+  fit(); addEventListener('resize', fit);
+
+  const LAY = {};
+  const lay = (name, w, h) => {
+    let c = LAY[name];
+    if (!c) c = LAY[name] = Object.assign(document.createElement('canvas'), { width: w, height: h });
+    const x = c.getContext('2d');
+    x.setTransform(1, 0, 0, 1, 0, 0); x.globalCompositeOperation = 'source-over'; x.globalAlpha = 1; x.filter = 'none';
+    x.clearRect(0, 0, c.width, c.height);
+    return c;
+  };
+  const sprite = (key, w, h, draw) => {
+    if (LAY[key]) return LAY[key];
+    const c = Object.assign(document.createElement('canvas'), { width: w, height: h });
+    const x = c.getContext('2d'); draw(x, w, h);
+    LAY[key] = c; return c;
+  };
+  const put = (target, key, cx, cy) => { const c = LAY[key]; target.drawImage(c, cx - c.width / 2, cy - c.height / 2); };
+
+  const cut = (p, fn) => {
+    p.save(); p.globalCompositeOperation = 'destination-out';
+    p.fillStyle = '#000'; p.strokeStyle = '#000'; fn(); p.restore();
+  };
+  const dot = (c, x, y, r) => { c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill(); };
+  const tear = (c, x, y, len, w, a) => {
+    c.save(); c.translate(x, y); c.rotate(a);
+    c.beginPath(); c.moveTo(0, -w / 2);
+    c.quadraticCurveTo(len * 0.55, -w * 0.45, len, 0);
+    c.quadraticCurveTo(len * 0.55, w * 0.45, 0, w / 2);
+    c.arc(0, 0, w / 2, Math.PI / 2, Math.PI * 1.5); c.fill(); c.restore();
+  };
+  const bz = (P, u) => { const v = 1 - u;
+    return [v * v * v * P[0][0] + 3 * v * v * u * P[1][0] + 3 * v * u * u * P[2][0] + u * u * u * P[3][0],
+            v * v * v * P[0][1] + 3 * v * v * u * P[1][1] + 3 * v * u * u * P[2][1] + u * u * u * P[3][1]]; };
+  const bzA = (P, u) => { const a = bz(P, Math.max(0, u - 0.01)), b = bz(P, Math.min(1, u + 0.01));
+    return Math.atan2(b[1] - a[1], b[0] - a[0]); };
+
+  /* ---------- 台面几何 ---------- */
+  const SUN = { x: 286, y: 566, r: 92 };
+  const EARTH = { x: 1420, y: 748, r: 258 };
+  const ORB = 336, MOON_R = 74;
+  const PHASE = { x: 1652, y: 318, r: 104 };
+  const GROUND_Y = 962;
+
+  const moonPos = (deg) => [
+    EARTH.x + ORB * Math.cos(deg * RAD),
+    EARTH.y - ORB * Math.sin(deg * RAD),
+  ];
+
+  /* ---------- 布与灯 ---------- */
+  const STOPS = [[0, [255, 232, 168]], [0.16, [255, 200, 104]], [0.42, [238, 132, 46]],
+                 [0.68, [168, 60, 20]], [0.88, [84, 24, 9]], [1, [38, 10, 4]]];
+  function lamp(t, B) {
+    const f = 1 + 0.05 * (NZ(t * 6.1, 0.3) - 0.5) + 0.03 * (NZ(t * 17.3, 2.2) - 0.5);
+    const b = Math.max(0, B * f);
+    const cx = 812 + (NZ(t * 0.9, 5) - 0.5) * 26;
+    const cy = 420 + (NZ(7, t * 0.8) - 0.5) * 20;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, HT);
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 1080);
+    for (const [o, c] of STOPS) g.addColorStop(o, rgb(c.map((v) => Math.min(255, v * b))));
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, HT);
+  }
+
+  const weaveTile = () => sprite('weave', 96, 96, (x) => {
+    const img = x.createImageData(96, 96), d = img.data, r = rng(77);
+    const row = Array.from({ length: 96 }, () => 0.6 + r() * 0.8);
+    const col = Array.from({ length: 96 }, () => 0.6 + r() * 0.8);
+    for (let y = 0; y < 96; y++) {
+      for (let X = 0; X < 96; X++) {
+        const i = (y * 96 + X) * 4;
+        const th = (y % 3 === 0 ? 1 : y % 3 === 1 ? 0.35 : 0) * row[y] * (0.75 + 0.25 * Math.sin(X * TAU * 2 / 96 + row[y] * 9));
+        const tv = (X % 3 === 0 ? 1 : X % 3 === 1 ? 0.3 : 0) * col[X] * (0.75 + 0.25 * Math.sin(y * TAU * 2 / 96 + col[X] * 7));
+        const v = 255 * (1 - 0.085 * th - 0.07 * tv);
+        d[i] = v; d[i + 1] = v * 0.984; d[i + 2] = v * 0.966; d[i + 3] = 255;
+      }
+    }
+    x.putImageData(img, 0, 0);
+  });
+
+  const grainTile = (k) => sprite('grain' + k, 200, 200, (x) => {
+    const img = x.createImageData(200, 200), r = rng(900 + k);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = r() < 0.5 ? 0 : 255;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = r() * 24;
+    }
+    x.putImageData(img, 0, 0);
+  });
+
+  /* ---------- 静态道具 ---------- */
+  const valance = () => sprite('val', W, 92, (p) => {
+    p.fillStyle = INK; p.fillRect(0, 0, W, 16);
+    for (let x = -16; x < W + 32; x += 34) { p.beginPath(); p.arc(x + 17, 15, 17, 0, Math.PI); p.fill(); }
+    for (let x = 30; x < W; x += 68) { p.fillRect(x - 1, 24, 2, 24); tear(p, x, 46, 20, 10, Math.PI / 2); dot(p, x, 46, 5); }
+    cut(p, () => {
+      for (let x = 9; x < W; x += 13) dot(p, x, 7, 1.9);
+      for (let x = -16; x < W + 32; x += 34) {
+        dot(p, x + 17, 23, 3.4);
+        tear(p, x + 10, 20, 8, 3.6, 2.4);
+        tear(p, x + 24, 20, 8, 3.6, 0.74);
+      }
+    });
+  });
+
+  const ground = () => sprite('gnd', W, 128, (p) => {
+    const r = rng(31);
+    p.fillStyle = INK; p.strokeStyle = INK; p.fillRect(0, 108, W, 20);
+    for (let x = -10; x < W + 10; x += 5 + r() * 6) {
+      const h = 14 + r() * 40 * (0.6 + 0.4 * Math.pow(Math.sin(x * 0.013), 2));
+      const lean = (r() - 0.5) * 24, w = 2 + r() * 2.6;
+      p.beginPath(); p.moveTo(x - w, 112);
+      p.quadraticCurveTo(x + lean * 0.3, 112 - h * 0.6, x + lean, 112 - h);
+      p.quadraticCurveTo(x + lean * 0.3 + w * 0.6, 112 - h * 0.55, x + w, 112);
+      p.fill();
+    }
+    for (let x = 70; x < W; x += 150 + r() * 90) {
+      const dir = r() < 0.5 ? -1 : 1, h = 40 + r() * 24;
+      p.lineWidth = 3; p.beginPath(); p.moveTo(x, 112);
+      p.quadraticCurveTo(x + dir * 6, 112 - h * 0.6, x + dir * 2, 112 - h);
+      for (let a = 0; a < 5.4; a += 0.3) {
+        const rr = 10 * (1 - a / 6.2);
+        p.lineTo(x + dir * (12 - Math.cos(a) * rr), 112 - h - Math.sin(a) * rr);
+      }
+      p.stroke();
+      for (let k = 1; k < 4; k++) tear(p, x + dir * 3, 112 - h * k / 4.2, 14, 6, dir > 0 ? -0.5 : Math.PI + 0.5);
+    }
+  });
+
+  const earthSprite = () => sprite('earth', (EARTH.r + 26) * 2, (EARTH.r + 26) * 2, (p, w, h) => {
+    const c = w / 2, r = EARTH.r, R2 = rng(19);
+    p.fillStyle = INK; p.strokeStyle = INK;
+    dot(p, c, c, r);
+    // 镂空：海陆的涡卷 + 缘饰
+    cut(p, () => {
+      for (let k = 0; k < 30; k++) dot(p, c + Math.cos(k * TAU / 30) * (r - 16), c + Math.sin(k * TAU / 30) * (r - 16), 4.6);
+      for (let k = 0; k < 24; k++) {
+        const a = k * TAU / 24 + 0.13, rr = r * (0.34 + R2() * 0.42);
+        p.lineWidth = 2.4 + R2() * 3;
+        p.beginPath();
+        p.arc(c + Math.cos(a) * rr * 0.6, c + Math.sin(a) * rr * 0.6, r * (0.09 + R2() * 0.14), a, a + 2.2 + R2());
+        p.stroke();
+      }
+      for (let k = 0; k < 5; k++) {
+        const a = k * TAU / 5 + 0.4, rr = r * 0.62;
+        for (let j = 0; j < 5; j++) tear(p, c + Math.cos(a) * rr, c + Math.sin(a) * rr, 26, 11, j * TAU / 5);
+        dot(p, c + Math.cos(a) * rr, c + Math.sin(a) * rr, 6);
+      }
+      for (let k = 0; k < 9; k++) dot(p, c + (R2() - 0.5) * r * 1.1, c + (R2() - 0.5) * r * 1.1, 2.6 + R2() * 2.4);
+    });
+  });
+
+  const hoopSprite = () => sprite('hoop', (ORB + 20) * 2, (ORB + 20) * 2, (p, w, h) => {
+    const c = w / 2;
+    p.fillStyle = INK; p.strokeStyle = INK;
+    p.lineWidth = 5; p.beginPath(); p.arc(c, c, ORB, 0, TAU); p.stroke();
+    for (let k = 0; k < 36; k++) {
+      const a = k * TAU / 36;
+      dot(p, c + Math.cos(a) * ORB, c + Math.sin(a) * ORB, 8);
+    }
+    cut(p, () => {
+      for (let k = 0; k < 36; k++) {
+        const a = (k + 0.5) * TAU / 36;
+        dot(p, c + Math.cos(a) * ORB, c + Math.sin(a) * ORB, 2.4);
+      }
+    });
+  });
+
+  /* ---------- 会动的道具 ---------- */
+  function sunOn(S, G, burst, glow) {
+    S.fillStyle = INK; S.strokeStyle = INK;
+    const L = 46 * burst;
+    for (let k = 0; k < 16; k++) {
+      const a = k / 16 * TAU + 0.1, l = (k % 2 ? 0.6 : 1) * L, w = 0.085;
+      S.beginPath();
+      S.moveTo(SUN.x + Math.cos(a - w) * (SUN.r + 12), SUN.y + Math.sin(a - w) * (SUN.r + 12));
+      S.lineTo(SUN.x + Math.cos(a) * (SUN.r + 18 + l), SUN.y + Math.sin(a) * (SUN.r + 18 + l));
+      S.lineTo(SUN.x + Math.cos(a + w) * (SUN.r + 12), SUN.y + Math.sin(a + w) * (SUN.r + 12));
+      S.fill();
+      dot(S, SUN.x + Math.cos(a) * (SUN.r + 26 + l), SUN.y + Math.sin(a) * (SUN.r + 26 + l), 4.5 * burst);
+    }
+    dot(S, SUN.x, SUN.y, SUN.r + 12);
+    for (let k = 0; k < 20; k++) {
+      const a = k * TAU / 20;
+      dot(S, SUN.x + Math.cos(a) * (SUN.r + 12), SUN.y + Math.sin(a) * (SUN.r + 12), 5.5);
+    }
+    cut(S, () => {
+      dot(S, SUN.x, SUN.y, SUN.r);
+      for (let k = 0; k < 20; k++) {
+        const a = (k + 0.5) * TAU / 20;
+        dot(S, SUN.x + Math.cos(a) * (SUN.r + 6), SUN.y + Math.sin(a) * (SUN.r + 6), 1.9);
+      }
+    });
+    G.save();
+    G.globalCompositeOperation = 'lighter';
+    const g = G.createRadialGradient(SUN.x, SUN.y, 0, SUN.x, SUN.y, SUN.r);
+    g.addColorStop(0, `rgba(255,248,226,${0.45 * glow})`);
+    g.addColorStop(0.7, `rgba(255,214,150,${0.30 * glow})`);
+    g.addColorStop(1, `rgba(255,180,90,0)`);
+    G.fillStyle = g;
+    dot(G, SUN.x, SUN.y, SUN.r);
+    G.restore();
+  }
+
+  function moonOn(S, G, x, y, r, litAng, lit) {
+    // 影子：黑盘 + 缘饰环
+    S.fillStyle = INK; S.strokeStyle = INK;
+    dot(S, x, y, r);
+    S.lineWidth = 9;
+    S.beginPath(); S.arc(x, y, r + 5, 0, TAU); S.stroke();
+    for (let k = 0; k < 18; k++) {
+      const a = k * TAU / 18;
+      dot(S, x + Math.cos(a) * (r + 5), y + Math.sin(a) * (r + 5), 4.2);
+    }
+    cut(S, () => { for (let k = 0; k < 18; k++) { const a = (k + 0.5) * TAU / 18; dot(S, x + Math.cos(a) * (r + 5), y + Math.sin(a) * (r + 5), 1.5); } });
+    // 光：朝向太阳的那半个
+    G.save();
+    G.globalCompositeOperation = 'lighter';
+    G.fillStyle = `rgba(255,238,196,${lit})`;
+    G.beginPath();
+    G.arc(x, y, r - 1, litAng - Math.PI / 2, litAng + Math.PI / 2);
+    G.closePath(); G.fill();
+    G.restore();
+  }
+
+  // 月相遮罩：右半圆，加上（或减掉）一块向左侧鼓出的半椭圆。
+  // 半椭圆手工采样，避免 ellipse 扫描方向带来的歧义。
+  function phaseMask(r, p) {
+    const c0 = lay('phm', Math.ceil(r * 2 + 8), Math.ceil(r * 2 + 8)), c = c0.getContext('2d');
+    c.translate(r + 4, r + 4);
+    c.fillStyle = '#fff';
+    // 明暗界线：x = a·√(1-(y/r)²)。a=+r 是新月（界线贴着右缘），a=-r 是满月（贴着左缘）
+    const a = r * (1 - 2 * p);
+    c.beginPath();
+    c.arc(0, 0, r, -Math.PI / 2, Math.PI / 2, false);
+    for (let k = 1; k <= 64; k++) {
+      const y = r - 2 * r * k / 64;
+      const q = Math.sqrt(Math.max(0, 1 - (y / r) * (y / r)));
+      c.lineTo(a * q, y);
+    }
+    c.closePath(); c.fill();
+    return c0;
+  }
+
+  function phaseDisc(S, G, cx, cy, r, p) {
+    S.save(); S.translate(cx, cy);
+    S.fillStyle = INK; S.strokeStyle = INK;
+    dot(S, 0, 0, r);
+    S.lineWidth = 8; S.beginPath(); S.arc(0, 0, r + 4, 0, TAU); S.stroke();
+    for (let k = 0; k < 16; k++) {
+      const a = k * TAU / 16;
+      dot(S, Math.cos(a) * (r + 4), Math.sin(a) * (r + 4), 3.8);
+    }
+    cut(S, () => { for (let k = 0; k < 24; k++) { const a = (k + 0.5) * TAU / 24; dot(S, Math.cos(a) * (r - 10), Math.sin(a) * (r - 10), 2.7); } });
+    S.restore();
+    const m = phaseMask(r - 1, p);
+    G.save(); G.globalCompositeOperation = 'lighter'; G.globalAlpha = 0.46;
+    G.drawImage(m, cx - m.width / 2, cy - m.height / 2);
+    G.restore();
+  }
+
+  function vine(p, P, prog, w) {
+    if (prog <= 0.001) return;
+    w = w || 6;
+    p.fillStyle = INK; p.strokeStyle = INK; p.lineCap = 'round'; p.lineJoin = 'round';
+    const N = 48, n = Math.max(2, Math.ceil(N * prog));
+    p.lineWidth = w; p.beginPath();
+    for (let i = 0; i <= n; i++) { const q = bz(P, Math.min(prog, i / N)); if (i === 0) p.moveTo(q[0], q[1]); else p.lineTo(q[0], q[1]); }
+    p.stroke();
+    const s0 = bz(P, 0), a0 = bzA(P, 0);
+    p.lineWidth = 3; p.beginPath();
+    for (let a = 0; a < 5; a += 0.25) {
+      const rr = 14 * (1 - a / 6), aa = a0 + Math.PI + a;
+      p.lineTo(s0[0] + Math.cos(aa) * rr, s0[1] + Math.sin(aa) * rr);
+    }
+    p.stroke();
+    [0.2, 0.36, 0.52, 0.68, 0.82].forEach((u, i) => {
+      if (u > prog - 0.05) return;
+      const q = bz(P, u), a = bzA(P, u) + (i % 2 ? 1 : -1) * 0.85, gr = Math.min(1, (prog - u) / 0.12);
+      tear(p, q[0], q[1], 22 * gr, 10 * gr, a);
+      cut(p, () => { p.lineWidth = 1.3; p.beginPath(); p.moveTo(q[0] + Math.cos(a) * 4, q[1] + Math.sin(a) * 4); p.lineTo(q[0] + Math.cos(a) * 17 * gr, q[1] + Math.sin(a) * 17 * gr); p.stroke(); });
+    });
+    const e = bz(P, prog), ea = bzA(P, prog);
+    p.save(); p.translate(e[0], e[1]); p.rotate(ea);
+    p.beginPath(); p.moveTo(26, 0); p.quadraticCurveTo(7, -5, -3, -16);
+    p.quadraticCurveTo(2, -5, -5, 0); p.quadraticCurveTo(2, 5, -3, 16); p.quadraticCurveTo(7, 5, 26, 0);
+    p.fill();
+    cut(p, () => dot(p, 5, 0, 2.8));
+    p.restore();
+  }
+
+  function plaqueOn(p, cx, cy, w, h, text, size, hang, rot, g) {
+    p.save(); p.translate(cx, cy); p.rotate(rot || 0);
+    p.fillStyle = INK; p.strokeStyle = INK;
+    if (hang > 0) {
+      p.lineWidth = 2.6;
+      p.beginPath();
+      p.moveTo(-w * 0.33, -h / 2); p.lineTo(-w * 0.33, -h / 2 - hang);
+      p.moveTo(w * 0.33, -h / 2); p.lineTo(w * 0.33, -h / 2 - hang);
+      p.stroke();
+    }
+    p.beginPath(); p.roundRect(-w / 2, -h / 2, w, h, 16); p.fill();
+    for (let x = -w / 2 + 18; x <= w / 2 - 18; x += 19) { dot(p, x, -h / 2, 6); dot(p, x, h / 2, 6); }
+    for (let y = -h / 2 + 18; y <= h / 2 - 18; y += 19) { dot(p, -w / 2, y, 6); dot(p, w / 2, y, 6); }
+    for (const s of [-1, 1]) dot(p, s * (w / 2 + 9), 0, h * 0.17);
+    cut(p, () => {
+      p.lineWidth = 3;
+      p.beginPath(); p.roundRect(-w / 2 + 19, -h / 2 + 19, w - 38, h - 38, 8); p.stroke();
+      for (const s of [-1, 1]) dot(p, s * (w / 2 + 9), 0, h * 0.06);
+      p.font = `700 ${size}px ${FONT}`;
+      p.textAlign = 'center'; p.textBaseline = 'middle';
+      p.fillText(text, 0, size * 0.06);
+    });
+    p.restore();
+    // 镂空的字要透光：在光层上补一层同形的暖光，暗处的小牌才读得出来
+    if (g) {
+      g.save(); g.translate(cx, cy); g.rotate(rot || 0);
+      g.globalCompositeOperation = 'lighter';
+      g.font = `700 ${size}px ${FONT}`;
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = 'rgba(255,208,148,0.62)';
+      g.fillText(text, 0, size * 0.06);
+      g.restore();
+    }
+  }
+
+  /* ---------- 时间表 ---------- */
+  const T = {
+    lampIn: 0.0, titleIn: 0.55, sunIn: 2.55, vine: 3.25, earthIn: 4.05,
+    hoopIn: 4.75, moonIn: 5.25, orbit0: 6.0, half: 12.6, end: 18.6,
+    titleOut: 17.3, payIn: 17.85,
+  };
+
+  const degAt = (t) => {
+    if (t < T.orbit0) return 180;
+    if (t < T.half) return lerp(180, 0, EIO(clamp((t - T.orbit0) / (T.half - T.orbit0))));
+    return lerp(0, -180, EIO(clamp((t - T.half) / (T.end - T.half))));
+  };
+
+  window.film = {
+    duration: 20,
+    ready: document.fonts.ready,
+    frame(t) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1; ctx.filter = 'none';
+
+      // 灯：点着（带一点抖）
+      const up = sm(0, 0.95, t);
+      const sput = t < 1.1 ? (0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t * 24 + NZ(t * 5, 1) * 6))) : 1;
+      lamp(t, lerp(0.13, 1, up) * (0.55 + 0.45 * sput));
+
+      const S = lay('S', W, HT);
+      const G = lay('G', W, HT);
+      const sc = S.getContext('2d'), gc = G.getContext('2d');
+      sc.fillStyle = INK; sc.strokeStyle = INK;
+      gc.save(); gc.globalCompositeOperation = 'lighter';
+
+      // 幕顶与地面
+
+      // 地球：从台下升起
+      const ep = EO(sm(T.earthIn, T.earthIn + 1.1, t));
+      if (ep > 0) {
+        earthSprite();
+        const dy = (1 - ep) * 260;
+        sc.save(); sc.beginPath(); sc.rect(0, 0, W, GROUND_Y + 40); sc.clip();
+        sc.globalAlpha = ep;
+        put(sc, 'earth', EARTH.x, EARTH.y + dy);
+        sc.restore();
+      }
+
+      // 轨道环：一根铜丝，绷在幕前
+      const hp = EO(sm(T.hoopIn, T.hoopIn + 0.9, t));
+      if (hp > 0) {
+        hoopSprite();
+        sc.save(); sc.globalAlpha = hp;
+        put(sc, 'hoop', EARTH.x, EARTH.y);
+        sc.restore();
+        gc.save(); gc.globalAlpha = hp * 0.34;
+        gc.strokeStyle = 'rgba(255,206,150,1)'; gc.lineWidth = 3;
+        gc.beginPath(); gc.arc(EARTH.x, EARTH.y, ORB, 0, TAU); gc.stroke();
+        gc.restore();
+      }
+
+      // 月亮
+      const deg = degAt(t);
+      const [mx0, my0] = moonPos(deg);
+      const mp = EO(sm(T.moonIn, T.moonIn + 0.8, t));
+      const mx = mx0, my = my0 + (1 - mp) * 140;
+      if (mp > 0) {
+        const litAng = Math.atan2(SUN.y - my, SUN.x - mx);
+        // 杆
+        sc.save(); sc.globalAlpha = mp; sc.strokeStyle = INK; sc.lineWidth = 3.4; sc.lineCap = 'round';
+        sc.beginPath(); sc.moveTo(mx, my); sc.lineTo(mx + (mx - 700) * 0.13 + 16, HT + 40); sc.stroke();
+        sc.restore();
+        sc.save(); sc.globalAlpha = mp;
+        moonOn(sc, gc, mx, my, MOON_R, litAng, 0.44 * mp);
+        sc.restore();
+      }
+
+      // 太阳
+      const bp = EO(sm(T.sunIn, T.sunIn + 0.9, t));
+      if (bp > 0) sunOn(sc, gc, bp, bp);
+      gc.restore();
+
+      // 光：三束从太阳边缘切出来、始终指向月亮的光条（不是拴绳，只出太阳一小截）
+      const vp = EO(sm(T.vine, T.vine + 1.1, t));
+      if (vp > 0.01) {
+        const ang = Math.atan2(my - SUN.y, mx - SUN.x);
+        const nx = -Math.sin(ang), ny = Math.cos(ang);
+        sc.save();
+        for (let k = -1; k <= 1; k++) {
+          const a = ang + k * 0.15;
+          const r0 = SUN.r + 42;
+          const len = (150 + (k === 0 ? 74 : 0)) * vp;
+          const w0 = k === 0 ? 14 : 8, w1 = w0 * 0.42;
+          const c0 = Math.cos(a), s0 = Math.sin(a);
+          sc.beginPath();
+          sc.moveTo(SUN.x + c0 * r0 + nx * w0, SUN.y + s0 * r0 + ny * w0);
+          sc.lineTo(SUN.x + c0 * (r0 + len) + nx * w1, SUN.y + s0 * (r0 + len) + ny * w1);
+          sc.lineTo(SUN.x + c0 * (r0 + len) - nx * w1, SUN.y + s0 * (r0 + len) - ny * w1);
+          sc.lineTo(SUN.x + c0 * r0 - nx * w0, SUN.y + s0 * r0 - ny * w0);
+          sc.closePath(); sc.fill();
+        }
+        if (vp > 0.55) {
+          const q = (vp - 0.55) / 0.45, r1 = SUN.r + 42 + 224 * vp;
+          sc.save();
+          sc.translate(SUN.x + Math.cos(ang) * r1, SUN.y + Math.sin(ang) * r1);
+          sc.rotate(ang);
+          sc.beginPath();
+          sc.moveTo(16 * q, 0); sc.lineTo(-8 * q, -16 * q);
+          sc.lineTo(-3 * q, 0); sc.lineTo(-8 * q, 16 * q);
+          sc.closePath(); sc.fill();
+          sc.restore();
+        }
+        sc.restore();
+      }
+
+      // 招牌
+      const tp = EO(sm(T.titleIn, T.titleIn + 0.85, t));
+      const tout = EIO(sm(T.titleOut, T.titleOut + 0.95, t));
+      if (tp > 0 && tout < 1) {
+        sc.save();
+        sc.globalAlpha = 1 - tout * 0.9;
+        const y = lerp(-150, 196, tp) - tout * 190;
+        plaqueOn(sc, 900, y, 704, 150, '月亮为什么有圆缺', 78, 300, 0.008 * Math.sin(t * 1.1), gc);
+        sc.restore();
+      }
+      const pp = EO(sm(T.payIn, T.payIn + 0.9, t));
+      if (pp > 0) {
+        sc.save();
+        const y = lerp(-190, 196, pp);
+        plaqueOn(sc, 900, y, 1080, 168, '它一直是半个亮球，变的是我们看的角度', 47, 300, 0.006 * Math.sin(t * 0.9), gc);
+        sc.restore();
+      }
+
+      // 月相牌
+      const php = EO(sm(T.hoopIn + 0.3, T.hoopIn + 1.2, t));
+      if (php > 0) {
+        const p = (1 + Math.cos(deg * RAD)) / 2;
+        sc.save(); sc.globalAlpha = php;
+        sc.strokeStyle = INK; sc.lineWidth = 2.4;
+        sc.beginPath();
+        sc.moveTo(PHASE.x - PHASE.r * 0.5, PHASE.y - PHASE.r - 4); sc.lineTo(PHASE.x - PHASE.r * 0.5, 0);
+        sc.moveTo(PHASE.x + PHASE.r * 0.5, PHASE.y - PHASE.r - 4); sc.lineTo(PHASE.x + PHASE.r * 0.5, 0);
+        sc.stroke();
+        phaseDisc(sc, gc, PHASE.x, PHASE.y, PHASE.r, p);
+        sc.restore();
+        sc.save(); sc.globalAlpha = php;
+        plaqueOn(sc, PHASE.x, PHASE.y + PHASE.r + 66, 300, 78, '从地球看', 38, 0, 0, gc);
+        sc.restore();
+      }
+
+      // 幕顶压住所有吊线
+      sc.drawImage(valance(), 0, 0);
+
+      // 地面（画在月亮之后：月亮走到下面就被挡住）
+      sc.drawImage(ground(), 0, HT - 128);
+
+      // 小名牌：太阳
+      const lb = EO(sm(T.sunIn + 0.5, T.sunIn + 1.2, t));
+      if (lb > 0) { sc.save(); sc.globalAlpha = lb; plaqueOn(sc, SUN.x, SUN.y + SUN.r + 78, 196, 72, '太阳', 38, 0, 0, gc); sc.restore(); }
+
+      // ---- 合成 ----
+      ctx.save(); ctx.filter = 'blur(0.7px)'; ctx.globalAlpha = 0.975; ctx.drawImage(S, 0, 0); ctx.restore();
+      ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.92; ctx.drawImage(G, 0, 0); ctx.restore();
+
+      // 布纹
+      weaveTile();
+      ctx.save();
+      ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = 0.9;
+      ctx.fillStyle = ctx.createPattern(LAY['weave'], 'repeat');
+      ctx.fillRect(0, 0, W, HT); ctx.restore();
+
+      // 布面反光（低分辨率提亮再放大）
+      const hl = lay('half', W / 4, HT / 4), hx = hl.getContext('2d');
+      hx.filter = 'blur(6px)';
+      hx.drawImage(ctx.canvas, 0, 0, W / 4, HT / 4);
+      ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.11; ctx.drawImage(hl, 0, 0, W, HT); ctx.restore();
+
+      // 颗粒，12 fps 抖一次
+      const fr = Math.floor(t * 12), gt = grainTile(fr % 3), gr = rng(fr + 5);
+      ctx.save();
+      ctx.fillStyle = ctx.createPattern(gt, 'repeat');
+      ctx.translate(-gr() * 200, -gr() * 200);
+      ctx.fillRect(0, 0, W + 200, HT + 200);
+      ctx.restore();
+
+      // 暗角
+      const vg = ctx.createRadialGradient(W / 2, HT * 0.42, HT * 0.22, W / 2, HT * 0.5, HT * 1.02);
+      vg.addColorStop(0, 'rgba(20,5,2,0)');
+      vg.addColorStop(1, 'rgba(20,5,2,0.42)');
+      ctx.fillStyle = vg; ctx.fillRect(0, 0, W, HT);
+    },
+  };
+})();
+</script>
+</body>
+</html>

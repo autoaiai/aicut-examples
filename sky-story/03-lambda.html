@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, height=1080">
+<link rel="stylesheet" href="_flat.css">
+<style>
+  .formula { position: absolute; left: 136px; top: 366px; margin: 0; display: flex; align-items: baseline; gap: 16px; }
+  .formula .fw { font-size: 62px; font-weight: 700; letter-spacing: -0.01em; }
+  .formula .op { font-size: 58px; font-weight: 300; color: var(--ink2); }
+  .formula .m { font-size: 104px; line-height: 0.9; font-weight: 400; letter-spacing: -0.02em; }
+  .formula .m em { font-style: normal; color: var(--blue); }
+  .formula .m sup { font-size: 54px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="kicker">Rayleigh · 03 / 波长</div>
+<div class="rule" style="top:156px"></div>
+<div class="pageno">03 / 06</div>
+<h1 class="h1">波长越短，被弹得越狠</h1>
+<p class="formula"><span class="fw">散射强度</span><span class="op">∝</span><span class="m">1 / <em>λ</em><sup>4</sup></span></p>
+<p class="take">蓝光被弹开的概率，是红光的近 6 倍</p>
+<div class="foot"><span>FIG.3 同一束阳光里两种波长的相对散射强度</span><span>(700 / 450)⁴ = 5.86</span></div>
+<script src="_flat.js"></script>
+<script>
+  const { g, begin } = FLAT.canvas();
+  const { prog, snap, easeOut, easeInOut, linear, C, mono } = FLAT;
+
+  const WX0 = 140, WX1 = 820, AMP = 24;
+  const RED_CY = 596, BLU_CY = 712, RED_T = 210, BLU_T = 70;
+
+  const AX = 1000, BASE_TOP = 428, BASE_BOT = 800;
+  const BARS = [
+    { cy: 512, nm: '红光 700 nm', color: C.red, ratio: 1.0, label: '1×', t: 1.62 },
+    { cy: 656, nm: '蓝光 450 nm', color: C.blue, ratio: 5.86, label: '5.9×', t: 1.94 },
+  ];
+  const UNIT = 92;
+
+  const h1 = document.querySelector('.h1');
+  const formula = document.querySelector('.formula');
+  const take = document.querySelector('.take');
+  const kick = document.querySelector('.kicker');
+  const pno = document.querySelector('.pageno');
+  const rule = document.querySelector('.rule');
+  const foot = document.querySelector('.foot');
+
+  function wave(cy, period, p, color) {
+    if (p <= 0) return;
+    const x1 = WX0 + (WX1 - WX0) * p;
+    g.strokeStyle = color;
+    g.lineWidth = 6;
+    g.lineCap = 'round';
+    g.beginPath();
+    for (let x = WX0; x <= x1; x += 2) {
+      const y = cy + AMP * Math.sin((x - WX0) / period * Math.PI * 2);
+      if (x === WX0) g.moveTo(x, y); else g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+
+  window.film = {
+    duration: 5.5,
+    ready: document.fonts.ready,
+    frame(t) {
+      begin();
+
+      wave(RED_CY, RED_T, prog(t, 0.85, 0.85, easeInOut), C.red);
+      wave(BLU_CY, BLU_T, prog(t, 1.1, 0.85, easeInOut), C.blue);
+
+      const lw = prog(t, 1.55, 0.45);
+      if (lw > 0) {
+        g.globalAlpha = lw;
+        mono(g, 20, C.ink2, 'left');
+        g.fillText('700 nm', 842, RED_CY + 1);
+        g.fillText('450 nm', 842, BLU_CY + 1);
+        g.globalAlpha = 1;
+      }
+
+      // 基准轴
+      const ap = prog(t, 1.35, 0.45);
+      if (ap > 0) {
+        g.strokeStyle = 'rgba(23,32,46,0.20)';
+        g.lineWidth = 2;
+        g.beginPath();
+        g.moveTo(AX, BASE_TOP);
+        g.lineTo(AX, BASE_TOP + (BASE_BOT - BASE_TOP) * ap);
+        g.stroke();
+      }
+
+      BARS.forEach((b) => {
+        const p = prog(t, b.t, 0.62, snap);
+        if (p <= 0) return;
+        const w = UNIT * b.ratio * p;
+        g.fillStyle = b.color;
+        g.fillRect(AX, b.cy - 28, w, 56);
+
+        g.globalAlpha = prog(t, b.t - 0.35, 0.4);
+        mono(g, 19, C.ink3, 'left');
+        g.fillText(b.nm, AX, b.cy - 46);
+        g.globalAlpha = 1;
+
+        if (p > 0.55) {
+          const v = b.ratio * p;
+          mono(g, 30, C.ink, 'left');
+          g.fillText((b.ratio === 1 ? '1×' : v.toFixed(1) + '×'), AX + w + 18, b.cy + 1);
+        }
+      });
+
+      const np = prog(t, 2.5, 0.5);
+      if (np > 0) {
+        g.globalAlpha = np;
+        mono(g, 21, C.ink3, 'left');
+        g.fillText('(700 / 450)⁴ = 5.86', AX, 762);
+        g.globalAlpha = 1;
+      }
+
+      kick.style.opacity = String(prog(t, -0.25, 0.45));
+      rule.style.opacity = String(prog(t, -0.25, 0.45));
+      pno.style.opacity = String(prog(t, -0.25, 0.45));
+      const a1 = prog(t, -0.15, 0.75);
+      h1.style.opacity = String(a1);
+      h1.style.transform = `translateY(${(1 - a1) * 20}px)`;
+      const a2 = prog(t, 0.15, 0.7);
+      formula.style.opacity = String(a2);
+      formula.style.transform = `translateY(${(1 - a2) * 14}px)`;
+      const a3 = prog(t, 3.1, 0.6);
+      take.style.opacity = String(a3 * 0.98);
+      take.style.transform = `translateY(${(1 - a3) * 12}px)`;
+      foot.style.opacity = String(prog(t, 0.1, 0.6));
+    },
+  };
+</script>
+</body>
+</html>

@@ -1,0 +1,162 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, height=1080">
+<link rel="stylesheet" href="_flat.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="kicker">Rayleigh · 02 / 分子</div>
+<div class="rule" style="top:156px"></div>
+<div class="pageno">02 / 06</div>
+<h1 class="h1">进大气层，先撞上分子</h1>
+<p class="sub">氮和氧的直径约 0.3 纳米——比光的波长小上千倍</p>
+<p class="take">撞上比自己小得多的东西，光会被弹向四面八方</p>
+<div class="foot"><span>FIG.2 平行光束在大气中遇到 N₂ / O₂</span><span>分子直径 ≈ 0.3 nm</span></div>
+<script src="_flat.js"></script>
+<script>
+  const { g, begin } = FLAT.canvas();
+  const { prog, hash, linear, easeOut, C, mono, rr } = FLAT;
+
+  const PANEL = { x: 140, y: 372, w: 1640, h: 484 };
+  const A = 24 * Math.PI / 180;
+  const DX = Math.cos(A), DY = Math.sin(A);
+  const NX = -Math.sin(A), NY = Math.cos(A);
+  const SPEED = 700;
+  const RAY_TOTAL = 1660;
+
+  const rays = [];
+  for (let i = 0; i < 3; i++) {
+    const sx = 60 + i * 140, sy = 200;
+    const t0 = 0.5 + i * 0.34;
+    const mols = [];
+    for (let k = 0; k < 3; k++) {
+      const s = 520 + k * 300;
+      const off = (hash('off' + i + k) - 0.5) * 120;
+      mols.push({
+        x: sx + DX * s + NX * off,
+        y: sy + DY * s + NY * off,
+        th: t0 + s / SPEED,
+        seed: 'f' + i + k,
+      });
+    }
+    rays.push({ sx, sy, t0, mols });
+  }
+
+  const bg = [];
+  for (let i = 0; i < 9; i++) {
+    const x = PANEL.x + 60 + hash('bx' + i) * (PANEL.w - 120);
+    const y = PANEL.y + 50 + hash('by' + i) * (PANEL.h - 100);
+    let clear = true;
+    for (const r of rays) for (const m of r.mols) if (Math.hypot(m.x - x, m.y - y) < 150) clear = false;
+    if (clear) bg.push({ x, y, seed: 'b' + i });
+  }
+
+  const mol = (x, y, r = 15, label = false) => {
+    g.fillStyle = C.ink;
+    g.beginPath(); g.arc(x + 20, y + 13, r * 0.42, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(x - 17, y - 12, r * 0.42, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    if (label) {
+      mono(g, 17, C.ink2, 'left');
+      g.fillText('N₂', x + 24, y - 26);
+    }
+  };
+
+  const h1 = document.querySelector('.h1');
+  const sub = document.querySelector('.sub');
+  const take = document.querySelector('.take');
+  const kick = document.querySelector('.kicker');
+  const pno = document.querySelector('.pageno');
+  const rule = document.querySelector('.rule');
+  const foot = document.querySelector('.foot');
+
+  window.film = {
+    duration: 5.5,
+    ready: document.fonts.ready,
+    frame(t) {
+      begin();
+
+      // 大气面板
+      const pa = prog(t, -0.1, 0.55);
+      g.globalAlpha = pa;
+      g.fillStyle = C.band;
+      rr(g, PANEL.x, PANEL.y, PANEL.w, PANEL.h, 12);
+      g.fill();
+      g.globalAlpha = 1;
+
+      g.save();
+      rr(g, PANEL.x, PANEL.y, PANEL.w, PANEL.h, 12);
+      g.clip();
+
+      // 背景分子
+      bg.forEach((m, i) => {
+        g.globalAlpha = prog(t, 0.1 + i * 0.06, 0.5);
+        mol(m.x, m.y, 13);
+        g.globalAlpha = 1;
+      });
+
+      // 三条平行光
+      for (const r of rays) {
+        const p = prog(t, r.t0, RAY_TOTAL / SPEED, linear);
+        if (p <= 0) continue;
+        const sEnd = RAY_TOTAL * p;
+        FLAT.litLine(g, r.sx, r.sy, r.sx + DX * sEnd, r.sy + DY * sEnd, 9, '#FFFFFF');
+      }
+
+      // 分子 + 散射
+      for (const r of rays) {
+        for (const m of r.mols) {
+          const hit = t >= m.th;
+          if (hit) {
+            const fp = prog(t, m.th, 0.42);
+            if (fp < 1) {
+              g.strokeStyle = C.blue;
+              g.lineWidth = 3;
+              g.globalAlpha = (1 - fp) * 0.55;
+              g.beginPath(); g.arc(m.x, m.y, 16 + 42 * fp, 0, Math.PI * 2); g.stroke();
+              g.globalAlpha = 1;
+            }
+            const sp = prog(t, m.th, 0.45, easeOut);
+            if (sp > 0) {
+              for (let k = 0; k < 3; k++) {
+                const ang = A + 1.02 + k * (Math.PI * 2 / 3);
+                const len = 96 * sp;
+                g.strokeStyle = '#FFFFFF';
+                g.lineWidth = 5;
+                g.lineCap = 'butt';
+                g.beginPath();
+                g.moveTo(m.x + Math.cos(ang) * 17, m.y + Math.sin(ang) * 17);
+                g.lineTo(m.x + Math.cos(ang) * (17 + len), m.y + Math.sin(ang) * (17 + len));
+                g.stroke();
+              }
+            }
+          }
+          const ma = prog(t, -0.05 + hash(m.seed) * 0.3, 0.45);
+          g.globalAlpha = ma;
+          mol(m.x, m.y, 15, hash(m.seed) > 0.55);
+          g.globalAlpha = 1;
+        }
+      }
+
+      g.restore();
+
+      kick.style.opacity = String(prog(t, -0.25, 0.45));
+      rule.style.opacity = String(prog(t, -0.25, 0.45));
+      pno.style.opacity = String(prog(t, -0.25, 0.45));
+      const a1 = prog(t, -0.15, 0.75);
+      h1.style.opacity = String(a1);
+      h1.style.transform = `translateY(${(1 - a1) * 20}px)`;
+      const a2 = prog(t, 0.25, 0.7);
+      sub.style.opacity = String(a2 * 0.95);
+      sub.style.transform = `translateY(${(1 - a2) * 14}px)`;
+      const a3 = prog(t, 3.5, 0.6);
+      take.style.opacity = String(a3 * 0.98);
+      take.style.transform = `translateY(${(1 - a3) * 12}px)`;
+      foot.style.opacity = String(prog(t, 0.1, 0.6));
+    },
+  };
+</script>
+</body>
+</html>

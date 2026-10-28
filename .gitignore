@@ -2,3 +2,10 @@ node_modules/
 .film/
 **/tools/bin/
 **/tools/ffmpeg.zip
+
+# 母版渲染留本地：GitHub 单文件上限 100MB，仓库只带 web 版
+*.mp4
+!*.web.mp4
+
+.DS_Store
+Thumbs.db

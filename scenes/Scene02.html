@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{display:block;width:100%;height:100%}</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script type="module">
+// Scene02 — 原野 · 金币 (0–6s): morning plains side-scroller, hero runs right, coins collect
+// (+100 pops, SCORE ticks), NOVA hovers ahead, swirl out to the night forest.
+import { createPix, stepped, clamp01, P, SKY, HERO, HERO_WALK, HERO_PAL, DRONE, DRONE_PAL, HEART, COIN, COIN_PAL, F, hx } from '../lib/pixel.js';
+
+const font = new FontFace('Press Start 2P', 'url(../assets/PressStart2P-Regular.ttf)');
+const ready = font.load().then((f) => document.fonts.add(f));
+
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const px = createPix();
+
+const COIN_T = [3.0, 3.5, 4.0, 4.5, 5.0]; // collect beats
+const SPEED = 140; // world scroll px/s
+const grass = hx('#4a8a4f'), grassLit = hx('#6aa868'), grassDk = hx('#2e5e3e'), grassDeep = hx('#245040');
+
+window.film = {
+  duration: 6,
+  ready,
+  frame(t) {
+    const T = stepped(t, 12), p = (a, b) => clamp01((T - a) / (b - a));
+    const s = SPEED * T;
+    const mtFar = hx('#4a6a98'), mtFarLit = hx('#7aa0c8');
+
+    px.skyBands(SKY.morning, 120);
+    px.sunStriped(280, 34, 13);
+    px.cloud(((20 + T * 6) % 380) - 30, 30, 30, 2, hx('#4a72a8'), hx('#a8c8e0'), hx('#e8f4fc'));
+    px.cloud(((200 + T * 5) % 380) - 30, 52, 24, 2, hx('#4a72a8'), hx('#a8c8e0'), hx('#e8f4fc'));
+    px.cloud(((120 + T * 4) % 380) - 30, 68, 36, 2, hx('#4a72a8'), hx('#a8c8e0'), hx('#e8f4fc'));
+
+    px.mountains(104, 24, 0.02, 5.7, s * 0.2, mtFar, mtFarLit, -999, 128);
+
+    // mid hills (parallax 0.5) with round trees
+    const hill = hx('#3a6a55'), hillLit = hx('#5a8a70');
+    for (let x = 0; x < 320; x++) {
+      const wx = x + s * 0.5;
+      const top = 116 - Math.round(6 * Math.sin(wx * 0.03) + 3 * Math.sin(wx * 0.011 + 2));
+      for (let y = top; y < 150; y++) px.put(x, y, y === top ? hillLit : hill);
+    }
+    // trees on the hills (parallax 0.5), seeded
+    {
+      const r0 = 42, period = 74;
+      for (let k = -1; k < 7; k++) {
+        const wx = k * period + Math.floor(r0 * 13.7 % period);
+        const x = Math.round(wx - s * 0.5);
+        if (x < -14 || x > 334) continue;
+        const wxr = ((x + Math.round(s * 0.5)) / period + 7) | 0;
+        const hgt = 14 + ((wxr * 37) % 9);
+        px.pine(x, 128 + (wxr % 3) * 4, hgt, hx('#2c5a46'), hx('#4a8060'));
+      }
+    }
+
+    // ground (parallax 1.0): rolling grass, tufts, flowers
+    const gy = (x) => 148 + Math.round(4 * Math.sin((x + s) * 0.021) + 2 * Math.sin((x + s) * 0.043 + 1.7));
+    for (let x = 0; x < 320; x++) {
+      const g = gy(x);
+      for (let y = g; y < 180; y++) px.put(x, y, y < g + 2 ? grassLit : y < g + 8 ? grass : y < 150 ? grassDk : grassDeep);
+      px.put(x, g - 1, grassLit);
+      if ((x + Math.round(s)) % 13 === 0) { px.put(x, g - 2, grassLit); px.put(x, g - 3, grass); }
+      if ((x + Math.round(s)) % 29 === 7) { px.put(x, g - 2, (x % 58 === 7) ? P.winY : P.winP); }
+    }
+
+    // hero runs in place at x=96 (world scrolls), 2-frame cycle on tens
+    const heroX = 96, heroY = gy(heroX) - 44 - (Math.floor(T * 10) % 2 ? 2 : 0);
+    for (let x = heroX + 4; x < heroX + 26; x++) px.put(x, gy(heroX) + 1, hx('#1e4020'));
+    px.sprite(Math.floor(T * 10) % 2 ? HERO_WALK : HERO, HERO_PAL, heroX, heroY, false, 2);
+    const flap = Math.floor(T * 8) % 2;
+    const scarf = flap ? [[-1, 0], [-2, 0], [-3, 1], [-4, 1], [-5, 2], [-6, 2], [-7, 3]] : [[-1, 0], [-2, 1], [-3, 1], [-4, 0], [-5, 0], [-6, 1], [-7, 1]];
+    scarf.forEach(([dx, dy], i) => { px.put(heroX + 10 + dx, heroY + 16 + dy, P.winP); px.put(heroX + 10 + dx, heroY + 18 + dy, i > 3 ? hx('#e8687a') : P.winP); px.put(heroX + 10 + dx, heroY + 20 + dy, P.ink); });
+
+    // NOVA hovers ahead, bobbing
+    const dX = 150, dY = Math.round(88 + Math.sin(T * 3) * 3);
+    px.sprite(DRONE, DRONE_PAL, dX, dY, false, 3);
+    const th = Math.floor(T * 10) % 2;
+    px.put(dX + 6, dY + 30, th ? P.cyan : P.coreMid); px.put(dX + 22, dY + 30, th ? P.cyan : P.coreMid);
+
+    // coins scroll in, collect on the beat: sparkle + '+100' pop
+    let collected = 0;
+    for (let i = 0; i < 5; i++) {
+      const tc = COIN_T[i], x = Math.round(96 + SPEED * (tc - T));
+      const cy = gy(96) - 34 + Math.round(Math.sin(T * 4 + i) * 2);
+      if (T < tc) {
+        if (x > -8 && x < 328) px.sprite(COIN, COIN_PAL, x, cy, false, 2);
+      } else {
+        collected++;
+        const k = T - tc;
+        if (k < 0.3) { // sparkle cross
+          const rr = Math.round(k * 20);
+          px.put(96 - rr, cy, P.goldHi); px.put(96 + rr, cy, P.goldHi); px.put(96, cy - rr, P.goldHi); px.put(96, cy + rr, P.goldHi);
+        }
+        if (k < 0.6) px.text('+100', 80 - 0, Math.round(cy - 10 - k * 24), P.gold, P.ink, F.px(8), P.ink);
+      }
+    }
+
+    // HUD (SCORE persists from Scene01)
+    for (let hI = 0; hI < 4; hI++) px.sprite(HEART, { K: '#0a0618', R: hI < 3 ? '#ff3a5a' : '#4a2a5a', W: hI < 3 ? '#ffd0e0' : '#6a4a7a' }, 8 + hI * 9, 7, false);
+    px.text('SCORE', 236, 6, P.white, P.ink, F.px(8));
+    px.text(String(4233 + collected * 100).padStart(6, '0'), 236, 15, P.gold, P.ink, F.px(8));
+
+    // mosaic in 0–0.5 (continues Scene01's), swirl out 5.5–6.0
+    if (T < 0.5) px.mosaic(Math.round(32 - 30 * (T / 0.5)));
+    if (T >= 5.5) px.swirl(p(5.5, 6.0), p(5.5, 6.0));
+
+    px.blit(ctx, 1920, 1080);
+  },
+};
+</script>
+</body>
+</html>

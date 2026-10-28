@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{display:block;width:100%;height:100%}</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script type="module">
+// Scene04 — 雪山 · 登顶 (0–6.5s): blizzard climb up a dawn-lit slope, gusts on beats,
+// flag plant at the summit, victory pose, iris out on the hero.
+import { createPix, stepped, clamp01, smoothf, bay, P, SKY, HERO, HERO_WALK, HERO_PAL, HEART, F, hx } from '../lib/pixel.js';
+
+const font = new FontFace('Press Start 2P', 'url(../assets/PressStart2P-Regular.ttf)');
+const ready = font.load().then((f) => document.fonts.add(f));
+
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const px = createPix();
+
+const snowC = hx('#dce8f8'), snowDk = hx('#a8bcdd'), snowLit = hx('#f8fcff'), strata = hx('#b8c8e4');
+// slope: ground height by x (summit plateau x>=260)
+const gy = (x) => (x >= 260 ? 60 : Math.max(60, Math.round(150 - 0.30 * x + 3 * Math.sin(x * 0.05))));
+
+window.film = {
+  duration: 6.5,
+  ready,
+  frame(t) {
+    const T = stepped(t, 12), p = (a, b) => clamp01((T - a) / (b - a));
+    const dawn = smoothf(4.0, 5.8, T);
+
+    // sky: cold blue-grey warming into dawn as the summit nears
+    px.skyBands2(SKY.snow, SKY.dawnWarm, dawn, 110);
+
+    // far jagged peaks (static camera)
+    px.mountains(96, 30, 0.022, 5.7, 0, hx('#8898c0'), hx('#e8f0fc'), 300, 140);
+    px.mountains(112, 20, 0.03, 2.2, 0, hx('#6a7cb0'), hx('#c8d8f0'), 300, 140);
+
+    // main slope with strata, scree and lit rim toward the dawn (right)
+    for (let x = 0; x < 320; x++) {
+      const g = gy(x);
+      for (let y = g; y < 180; y++) {
+        const d = y - g;
+        let c = snowC;
+        if (d < 1 && x > 250) c = snowLit;
+        else if (d < 2) c = (x > 250 || 0.5 > ((x * 13 + y * 7) % 16) / 16) ? snowLit : snowC;
+        else if (((y / 12) | 0) !== (((y - 1) / 12) | 0)) c = strata;
+        else if (d > 14 && 0.35 > bay(x, y)) c = snowDk;
+        px.put(x, y, c);
+      }
+      if ((x * 31) % 47 === 5 && g < 170) px.put(x, g + 6 + (x % 9), snowDk);
+    }
+
+    // blizzard: three parallax layers of white streaks, gusts on beats (T=1,3,5)
+    const gust = [1, 3, 5].some((g) => T >= g && T < g + 0.4) ? 1 : 0;
+    const layers = [[60, 26, 22], [110, 52, 18], [180, 90, 14]];
+    for (let L = 0; L < 3; L++) {
+      const [sp, count, len] = layers[L], dens = (L + 1) / 4 + gust * 0.25;
+      for (let i = 0; i < count; i++) {
+        if (i / count > dens) continue;
+        const x = ((i * 73 + T * sp) % 360 + 360) % 360 - 20;
+        const y = (i * 53 + L * 17) % 165 + 6;
+        const ln = len - L * 3;
+        for (let q = 0; q < ln; q++) if (0.8 - q * 0.12 > bay(Math.round(x - q), y)) px.put(Math.round(x - q), y, q < 2 ? P.white : snowLit);
+      }
+    }
+
+    // hero climbs (x steps right-up, alternate reach-arm), stops at the plateau
+    const climbT = Math.min(T, 5.0);
+    const heroX = Math.round(30 + 48 * climbT), heroG = gy(heroX);
+    const heroY = heroG - 44 - (Math.floor(T * 6) % 2 ? 2 : 0);
+    const climbing = T < 5.0;
+    for (let x = heroX + 4; x < heroX + 26; x++) px.put(x, heroG + 1, hx('#7c90b8'));
+    px.sprite(climbing && Math.floor(T * 6) % 2 ? HERO_WALK : HERO, HERO_PAL, heroX, heroY, false, 2);
+    if (climbing) { // alternating reach arm above the shoulders
+      const side = Math.floor(T * 3) % 2, ax = heroX + (side ? 8 : 18);
+      for (let j = 0; j < 5; j++) { px.put(ax, heroY + 6 - j, hx('#3a6ad8')); px.put(ax, heroY + 6 - j + 1, hx('#22408a')); }
+      px.put(ax, heroY + 1, P.skin);
+    } else if (T >= 5.6) { // victory: both arms up
+      for (let j = 0; j < 6; j++) { px.put(heroX + 6, heroY + 8 - j, hx('#3a6ad8')); px.put(heroX + 22, heroY + 8 - j, hx('#3a6ad8')); }
+      px.put(heroX + 6, heroY + 2, P.skin); px.put(heroX + 22, heroY + 2, P.skin);
+    }
+    const flap = Math.floor(T * (8 + gust * 8)) % 2;
+    const scarf = flap ? [[-1, 0], [-2, 0], [-3, 1], [-4, 1], [-5, 2], [-6, 2], [-7, 3]] : [[-1, 0], [-2, 1], [-3, 1], [-4, 0], [-5, 0], [-6, 1], [-7, 1]];
+    scarf.forEach(([dx, dy], i) => { px.put(heroX + 10 + dx, heroY + 16 + dy, P.winP); px.put(heroX + 10 + dx, heroY + 18 + dy, i > 3 ? hx('#e8687a') : P.winP); px.put(heroX + 10 + dx, heroY + 20 + dy, P.ink); });
+
+    // flag plant at the summit: pole rises 5.0–5.3, red pennant unfurls 5.3–5.6 and waves
+    if (T >= 5.0) {
+      const fx = 292, fy = gy(292), poleH = Math.round(26 * p(5.0, 5.3));
+      for (let j = 0; j < poleH; j++) { px.put(fx, fy - j, hx('#e8eef8')); px.put(fx + 1, fy - j, hx('#9aa8c8')); }
+      if (T >= 5.3) {
+        const unfurl = p(5.3, 5.6), w = Math.max(1, Math.round(9 * unfurl));
+        for (let i = 0; i < w; i++) for (let j = 0; j < Math.max(1, 6 - Math.round(i * 0.55)); j++) {
+          const wy = fy - poleH + j + (Math.sin(T * 6 + i * 0.8) > 0 ? 1 : 0);
+          px.put(fx + 2 + i, wy, j === 0 ? hx('#ff6a7a') : P.red);
+        }
+      }
+    }
+
+    // HUD
+    for (let hI = 0; hI < 4; hI++) px.sprite(HEART, { K: '#0a0618', R: hI < 3 ? '#ff3a5a' : '#4a2a5a', W: hI < 3 ? '#ffd0e0' : '#6a4a7a' }, 8 + hI * 9, 7, false);
+    px.text('SCORE', 236, 6, P.white, P.ink, F.px(8));
+    px.text('004733', 236, 15, P.gold, P.ink, F.px(8));
+
+    // whiteout in 0–0.5 (continues Scene03's), iris out 6.0–6.5 on the hero
+    if (T < 0.5) px.whiteout(1 - T / 0.5);
+    if (T >= 6.0) px.iris(heroX + 15, heroY + 10, Math.round(210 * (1 - p(6.0, 6.5))));
+
+    px.blit(ctx, 1920, 1080);
+  },
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{display:block;width:100%;height:100%}</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script type="module">
+// Scene01 — 屋顶 · 启程 (0–4.5s): dusk rooftop, fade-in, hero walks in, NOVA flies in,
+// hearts pop, SCORE rolls, dialog types, window snaps up into the quest header, mosaic out.
+import { createPix, stepped, clamp01, easeOut, lerp, P, SKY, HERO, HERO_WALK, HERO_PAL, DRONE, DRONE_PAL, HEART, ARROW, F, hx } from '../lib/pixel.js';
+
+const font = new FontFace('Press Start 2P', 'url(../assets/PressStart2P-Regular.ttf)');
+const ready = font.load().then((f) => document.fonts.add(f));
+
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const px = createPix();
+
+window.film = {
+  duration: 4.5,
+  ready,
+  frame(t) {
+    const T = stepped(t, 12), p = (a, b) => clamp01((T - a) / (b - a));
+    const mtFar = hx('#6a3478'), mtFarLit = hx('#b0507e'), mtNear = hx('#3e1f5e'), mtNearLit = hx('#7a3670');
+    const roof = hx('#0c0820'), roofTop = hx('#2a1a44'), roofRim = hx('#d0607a'), roofMid = hx('#1a1032');
+    const bldBack = hx('#2a1850'), bldBackLit = hx('#4a2a6a');
+
+    // sky, stars, striped sun, clouds
+    px.skyBands(SKY.dusk, 130);
+    px.stars(50, 3, T, 46);
+    px.sunStriped(266, 112, 24);
+    const cd = T * 2;
+    px.cloud(((40 + cd) % 380) - 30, 36, 30, 2);
+    px.cloud(((250 + cd * 1.1) % 380) - 30, 26, 22, 2);
+    px.cloud(((150 + cd * 0.7) % 380) - 30, 70, 38, 2);
+    px.cloud(((300 + cd * 0.9) % 380) - 30, 84, 26, 2);
+
+    // parallax mountains (slow drift, lit toward the sun)
+    px.mountains(112, 26, 0.018, 3.3, T * 2, mtFar, mtFarLit, 266, 128);
+    px.mountains(122, 16, 0.03, 8.1, T * 4, mtNear, mtNearLit, 266, 128);
+
+    // back-row skyline with lit windows + blinking beacons
+    px.skyline(9, 140, 16, 50, bldBack, bldBackLit, [P.winY, P.winY, P.winC, P.winP], 0, 0.35, T);
+
+    // rooftop foreground
+    px.rect(0, 128, 320, 52, roof);
+    px.rect(0, 128, 320, 1, roofRim);
+    px.rect(0, 129, 320, 1, roofTop);
+    for (let y = 130; y < 180; y++) for (let x = 0; x < 320; x++) if (((x + y) & 7) === 0 && y % 2) px.put(x, y, roofMid);
+    for (let x = 0; x < 320; x++) { px.put(x, 119, P.ink); px.put(x, 123, P.ink); if (x % 12 === 4) for (let y = 119; y < 128; y++) px.put(x, y, P.ink); if (x % 3 === 0) px.put(x, 118, roofRim); }
+    // HVAC unit
+    px.rect(14, 110, 26, 18, roof); px.rect(14, 110, 26, 1, roofRim);
+    for (let x = 17; x < 37; x += 3) for (let y = 113; y < 124; y++) px.put(x, y, roofMid);
+    // radio mast with guy wires + blinking beacon
+    for (let y = 82; y < 128; y++) { px.put(56, y, roof); if (y % 4 === 0) { px.put(55, y, roof); px.put(57, y, roof); } }
+    for (let k = 0; k < 30; k++) { px.put(Math.round(56 - k * 0.5), 88 + Math.round(k * 1.33), roof); px.put(Math.round(56 + k * 0.5), 88 + Math.round(k * 1.33), roof); }
+    if (Math.sin(T * 3) > 0) { px.put(56, 81, P.redBeacon); px.put(55, 81, hx('#ff8a8a')); }
+    // water tank on stilts
+    px.rect(66, 98, 18, 16, roof);
+    for (let y = 98; y < 114; y++) { px.put(83, y, roofTop); if (y % 4 === 0) for (let x = 66; x < 83; x++) px.put(x, y, roofMid); }
+    for (let x = 65; x < 85; x++) px.put(x, 97, roofRim);
+    for (let x = 67; x < 83; x++) { const top = 96 - Math.round(3 * Math.sin(((x - 67) / 16) * Math.PI)); for (let y = top; y < 97; y++) px.put(x, y, roof); px.put(x, top, roofTop); }
+
+    // hero walks in (2-frame cycle on eighths), scale 2, contact shadow
+    const walkP = p(0.5, 1.5), walking = walkP > 0 && walkP < 1;
+    const heroX = Math.round(-30 + 126 * walkP), heroY = 128 - 44 - (walking && Math.floor(T * 8) % 2 ? 2 : 0);
+    for (let x = Math.max(0, heroX + 4); x < heroX + 26; x++) px.put(x, 128, P.ink);
+    px.sprite(walking && Math.floor(T * 8) % 2 ? HERO_WALK : HERO, HERO_PAL, heroX, heroY, false, 2);
+    // scarf 2-frame flap
+    const flap = Math.floor(T * 6) % 2, scarf = flap ? [[-1, 0], [-2, 0], [-3, 1], [-4, 1], [-5, 1], [-6, 2], [-7, 2]] : [[-1, 0], [-2, 1], [-3, 1], [-4, 0], [-5, 0], [-6, 1], [-7, 0]];
+    scarf.forEach(([dx, dy], i) => { px.put(heroX + 10 + dx, heroY + 16 + dy, P.winP); px.put(heroX + 10 + dx, heroY + 18 + dy, i > 3 ? hx('#e8687a') : P.winP); px.put(heroX + 10 + dx, heroY + 20 + dy, P.ink); });
+
+    // NOVA flies in, bobbing, thruster blink
+    const flyP = easeOut(p(1.0, 1.6));
+    const dX = Math.round(340 - 180 * flyP), dY = Math.round(58 + Math.sin(T * 3) * 4);
+    px.sprite(DRONE, DRONE_PAL, dX, dY, false, 3);
+    if (flyP > 0) { const th = Math.floor(T * 10) % 2; px.put(dX + 6, dY + 30, th ? P.cyan : P.coreMid); px.put(dX + 22, dY + 30, th ? P.cyan : P.coreMid); }
+
+    // HUD: hearts pop 1.5–2.0 (3 full + 1 empty)
+    const nH = Math.round(clamp01((T - 1.5) / 0.5) * 4);
+    for (let hI = 0; hI < nH; hI++) px.sprite(HEART, { K: '#0a0618', R: hI < 3 ? '#ff3a5a' : '#4a2a5a', W: hI < 3 ? '#ffd0e0' : '#6a4a7a' }, 8 + hI * 9, 7, false);
+    // SCORE rolls to 004233
+    if (T >= 2.0) {
+      const v = Math.round(4233 * easeOut(p(2.0, 2.8)));
+      px.text('SCORE', 236, 6, P.white, P.ink, F.px(8));
+      px.text(String(v).padStart(6, '0'), 236, 15, P.gold, P.ink, F.px(8));
+    }
+
+    // dialog window snaps open in 4 steps, NOVA portrait, typed line
+    const openP = Math.floor(p(2.5, 2.8) * 4) / 4;
+    if (T < 3.6 && openP > 0) {
+      const bh = Math.max(4, Math.round(48 * openP)), by0 = 152 - (bh >> 1);
+      px.win(6, by0, 308, bh);
+      if (openP >= 1) {
+        px.rect(12, 129, 28, 28, hx('#0a1040'));
+        for (let i = 0; i < 28; i++) { px.put(12 + i, 129, P.grey); px.put(12 + i, 156, P.white); px.put(12, 129 + i, P.grey); px.put(39, 129 + i, P.white); }
+        px.sprite(DRONE, DRONE_PAL, 15, 133, false, 2);
+        px.text('诺娃', 46, 131, P.gold, P.ink, F.cjk(10, true));
+        const line = '出发吧，勇者！';
+        const shown = Math.min(line.length, Math.floor(p(2.9, 3.5) * line.length));
+        px.text(line.slice(0, shown), 46, 145, P.white, P.ink, F.cjk(10), P.ink);
+        // bouncing next-arrow once typed
+        if (shown >= line.length) px.sprite(ARROW, { K: '#0a0618', W: '#ffd27a' }, 294, 136 + (Math.floor(t * 4) % 2), false);
+      }
+    } else if (T >= 3.6) {
+      // window snaps up (stepped) into the quest header
+      const up = Math.floor(p(3.6, 3.9) * 6) / 6;
+      const y0 = Math.round(lerp(128, 2, up)), h0 = Math.round(lerp(48, 14, up)), w0 = Math.round(lerp(308, 88, up));
+      px.win(6, y0, w0, h0);
+      if (up >= 1) px.text('像素奇旅', 12, 5, P.gold, P.ink, F.cjk(10, true), P.ink);
+    }
+
+    // mosaic out 4.0–4.5 (grows to full abstraction at the cut; Scene02 opens at the same n)
+    if (T >= 4.0) px.mosaic(Math.round(2 + 30 * p(4.0, 4.5)));
+    // 16-step master-brightness fade-in (from dim, never from black)
+    px.fade(Math.min(15, 6 + Math.floor((T / 0.8) * 9)));
+
+    px.blit(ctx, 1920, 1080);
+  },
+};
+</script>
+</body>
+</html>

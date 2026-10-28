@@ -1,0 +1,155 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{display:block;width:100%;height:100%}</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script type="module">
+// Scene05 — 黎明 · 远方核心 (0–7s): sunrise over the valley city, the AI core tower
+// glows on the horizon, LEVEL UP! fills the last heart, final dialog + next arrow.
+import { createPix, stepped, clamp01, easeOut, bay, P, SKY, HERO, HERO_PAL, DRONE, DRONE_PAL, HEART, ARROW, F, hx } from '../lib/pixel.js';
+
+const font = new FontFace('Press Start 2P', 'url(../assets/PressStart2P-Regular.ttf)');
+const ready = font.load().then((f) => document.fonts.add(f));
+
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const px = createPix();
+
+window.film = {
+  duration: 7,
+  ready,
+  frame(t) {
+    const T = stepped(t, 12), p = (a, b) => clamp01((T - a) / (b - a));
+    const warm = clamp01((T - 0) / 1.5);
+
+    // sunrise sky: night warms into dawn bands
+    px.skyBands2(SKY.night, SKY.dawnWarm, warm, 150);
+    if (warm < 0.9) px.stars(Math.round(30 * (1 - warm)), 8, T, 70);
+
+    // striped sun rises 0.5–2.5 behind the ridge
+    const sy = Math.round(150 - 46 * clamp01((T - 0.5) / 2.0));
+    px.sunStriped(70, sy, 18);
+    // clouds lit from below
+    px.cloud(((30 + T * 3) % 380) - 30, 44, 30, 2, hx('#5c2a74'), hx('#e8687a'), hx('#ffb08a'));
+    px.cloud(((210 + T * 2.4) % 380) - 30, 66, 24, 2, hx('#5c2a74'), hx('#e8687a'), hx('#ffb08a'));
+
+    // far valley ridge + tiny city skyline
+    px.mountains(126, 14, 0.02, 5.7, 0, hx('#3e1f5e'), hx('#b0507e'), 70, 140);
+    px.skyline(404, 136, 4, 14, hx('#241542'), hx('#4a2a6a'), [P.winY, P.winC], T * 2, 0.3, T);
+
+    // the AI core tower on the horizon (focal point, callback to the opening city)
+    const tx = 252, tTop = 42, coreOn = T >= 1.0;
+    for (let y = tTop; y < 136; y++) {
+      const k = (y - tTop) / (136 - tTop), hw = Math.round(2 + 9 * Math.pow(k, 1.7));
+      for (let x = tx - hw; x <= tx + hw; x++) px.put(x, y, x >= tx + hw - 1 ? hx('#4a2a6a') : hx('#170d30'));
+      if (y > 64 && y % 4 === 0) for (let x = tx - hw + 2; x < tx + hw - 1; x += 3) if (Math.sin(x * 3.1 + y) > 0.1) px.put(x, y, P.winC);
+    }
+    for (let k = 1; k < 12; k++) px.put(tx, tTop - k, hx('#4a2a6a'));
+    if (Math.sin(T * 5) > 0) px.put(tx, tTop - 12, P.redBeacon);
+    if (coreOn) {
+      const cy0 = 56, pulse = 0.5 + 0.5 * Math.sin(T * 2.4), haloR = 14 + pulse * 3;
+      for (let y = cy0 - 18; y <= cy0 + 18; y++) for (let x = tx - 18; x <= tx + 18; x++) {
+        const d = Math.hypot(x - tx, y - cy0);
+        if (d > haloR || d < 5) continue;
+        const a = d < 9 ? 0.5 : d < 12 ? 0.25 : 0.0625;
+        if (a > bay(x, y)) px.put(x, y, P.coreMid);
+      }
+      for (let y = cy0 - 5; y <= cy0 + 5; y++) for (let x = tx - 5; x <= tx + 5; x++) {
+        const d = Math.hypot(x - tx, y - cy0);
+        if (d > 5.2) continue;
+        px.put(x, y, d < 2.5 ? P.core : (d - 2.5) / 2.7 > bay(x, y) ? P.coreMid : P.core);
+      }
+      for (let s2 = 0; s2 < 160; s2++) { // orbit ring
+        const a = (s2 / 160) * Math.PI * 2, x = tx + Math.cos(a) * 11, y = cy0 + Math.sin(a) * 3;
+        if (Math.sin(a) <= 0 && Math.hypot(x - tx, y - cy0) < 5.2) continue;
+        px.put(x, y, Math.cos(a - T * 1.2) > 0.6 ? P.core : Math.sin(a) > 0 ? P.coreMid : P.coreDeep);
+      }
+    }
+
+    // valley floor
+    for (let y = 136; y < 180; y++) for (let x = 0; x < 320; x++) px.put(x, y, y === 136 ? hx('#3a2058') : hx('#1c1038'));
+
+    // foreground summit plateau (carried from Scene04) with the flag
+    for (let x = 0; x < 150; x++) {
+      const g = 150 + Math.round(2 * Math.sin(x * 0.04 + 1));
+      for (let y = g; y < 180; y++) px.put(x, y, y === g ? snowLitRow(x) : y < g + 3 ? hx('#dce8f8') : hx('#a8bcdd'));
+    }
+    // flag (identity from Scene04)
+    {
+      const fx = 44, fy = 150, poleH = 26;
+      for (let j = 0; j < poleH; j++) { px.put(fx, fy - j, hx('#e8eef8')); px.put(fx + 1, fy - j, hx('#9aa8c8')); }
+      for (let i = 0; i < 9; i++) for (let j = 0; j < Math.max(1, 6 - Math.round(i * 0.55)); j++) {
+        const wy = fy - poleH + j + (Math.sin(T * 6 + i * 0.8) > 0 ? 1 : 0);
+        px.put(fx + 2 + i, wy, j === 0 ? hx('#ff6a7a') : P.red);
+      }
+    }
+
+    // hero stands on the plateau looking right, scarf in the wind
+    const heroX = 76, heroY = 150 - 44;
+    for (let x = heroX + 4; x < heroX + 26; x++) px.put(x, 151, hx('#7c90b8'));
+    px.sprite(HERO, HERO_PAL, heroX, heroY, false, 2);
+    const flap = Math.floor(T * 7) % 2;
+    const scarf = flap ? [[-1, 0], [-2, 0], [-3, 1], [-4, 1], [-5, 2], [-6, 2], [-7, 3]] : [[-1, 0], [-2, 1], [-3, 1], [-4, 0], [-5, 0], [-6, 1], [-7, 1]];
+    scarf.forEach(([dx, dy], i) => { px.put(heroX + 10 + dx, heroY + 16 + dy, P.winP); px.put(heroX + 10 + dx, heroY + 18 + dy, i > 3 ? hx('#e8687a') : P.winP); px.put(heroX + 10 + dx, heroY + 20 + dy, P.ink); });
+
+    // NOVA returns, flies in from the left and settles ahead
+    if (T >= 0.5) {
+      const fp = easeOut(clamp01((T - 0.5) / 0.7));
+      const dX = Math.round(-20 + 130 * fp), dY = Math.round(92 + Math.sin(T * 3) * 3);
+      px.sprite(DRONE, DRONE_PAL, dX, dY, false, 3);
+      const th = Math.floor(T * 10) % 2;
+      px.put(dX + 6, dY + 30, th ? P.cyan : P.coreMid); px.put(dX + 22, dY + 30, th ? P.cyan : P.coreMid);
+    }
+
+    // LEVEL UP! window (opens in 4 steps), EXP bar fills, 4th heart lights
+    if (T >= 1.5) {
+      const op = Math.floor(p(1.5, 1.8) * 4) / 4;
+      if (op > 0) {
+        const bh = Math.max(4, Math.round(30 * op));
+        px.win(160, 18, 152, bh);
+        if (op >= 1) {
+          px.text('LEVEL UP!', 168, 22, P.gold, P.ink, F.px(16), P.ink);
+          const ep = easeOut(p(1.8, 2.8));
+          px.rect(168, 38, 136, 5, P.ink);
+          px.rect(169, 39, Math.round(134 * ep), 3, ep >= 1 ? P.green : P.coreMid);
+        }
+      }
+    }
+
+    // HUD: 4th heart fills at LEVEL UP; SCORE +1000
+    const filled = T >= 1.5;
+    for (let hI = 0; hI < 4; hI++) px.sprite(HEART, { K: '#0a0618', R: hI < 3 || filled ? '#ff3a5a' : '#4a2a5a', W: hI < 3 || filled ? '#ffd0e0' : '#6a4a7a' }, 8 + hI * 9, 7, false);
+    px.text('SCORE', 236, 6, P.white, P.ink, F.px(8));
+    px.text(T >= 1.5 ? '005733' : '004733', 236, 15, P.gold, P.ink, F.px(8));
+
+    // final dialog: opens 3.0, types 3.2–4.3, next-arrow bounces from 4.5
+    if (T >= 3.0) {
+      const op = Math.floor(p(3.0, 3.3) * 4) / 4;
+      if (op > 0) {
+        const bh = Math.max(4, Math.round(48 * op)), by0 = 152 - (bh >> 1);
+        px.win(6, by0, 308, bh);
+        if (op >= 1) {
+          px.rect(12, 129, 28, 28, hx('#0a1040'));
+          for (let i = 0; i < 28; i++) { px.put(12 + i, 129, P.grey); px.put(12 + i, 156, P.white); px.put(12, 129 + i, P.grey); px.put(39, 129 + i, P.white); }
+          px.sprite(DRONE, DRONE_PAL, 15, 133, false, 2);
+          px.text('诺娃', 46, 131, P.gold, P.ink, F.cjk(10, true));
+          const line = '旅程，才刚刚开始。';
+          const shown = Math.min(line.length, Math.floor(p(3.2, 4.3) * line.length));
+          px.text(line.slice(0, shown), 46, 145, P.white, P.ink, F.cjk(10), P.ink);
+          if (shown >= line.length) px.sprite(ARROW, { K: '#0a0618', W: '#ffd27a' }, 294, 136 + (Math.floor(t * 4) % 2), false);
+        }
+      }
+    }
+
+    // iris in 0–0.5 (continues Scene04's close, reopens centre-frame)
+    if (T < 0.5) px.iris(160, 80, Math.round(210 * (T / 0.5)));
+
+    px.blit(ctx, 1920, 1080);
+  },
+};
+function snowLitRow(x) { return (x % 7 === 3) ? hx('#f8fcff') : hx('#dce8f8'); }
+</script>
+</body>
+</html>

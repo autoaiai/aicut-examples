@@ -1,0 +1,123 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{display:block;width:100%;height:100%}</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script type="module">
+// Scene03 — 夜林 · 萤火 (0–6s): night forest, moon, fireflies gather to the hero,
+// NOVA's thruster lights the path, a shooting star, snow begins, whiteout out.
+import { createPix, stepped, clamp01, bay, P, SKY, HERO, HERO_WALK, HERO_PAL, DRONE, DRONE_PAL, HEART, F, hx } from '../lib/pixel.js';
+
+const font = new FontFace('Press Start 2P', 'url(../assets/PressStart2P-Regular.ttf)');
+const ready = font.load().then((f) => document.fonts.add(f));
+
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const px = createPix();
+const SPEED = 30;
+
+window.film = {
+  duration: 6,
+  ready,
+  frame(t) {
+    const T = stepped(t, 12), p = (a, b) => clamp01((T - a) / (b - a));
+    const s = SPEED * T;
+
+    px.skyBands(SKY.night, 150);
+    px.stars(46, 8, T, 70);
+    px.moon(252, 36, 13);
+    // shooting star 2.5–2.9
+    if (T >= 2.5 && T < 2.95) {
+      const k = (T - 2.5) / 0.45, sx = Math.round(290 - 110 * k), sy = Math.round(18 + 26 * k);
+      for (let q = 0; q < 8; q++) if (0.9 - q * 0.11 > bay(sx + q * 2, sy - Math.round(q * 0.6))) px.put(sx + q * 2, sy - Math.round(q * 0.6), q < 2 ? P.star : P.starDim);
+      px.put(sx, sy, P.white);
+    }
+
+    // far ridge (parallax 0.2)
+    px.mountains(120, 18, 0.02, 5.7, s * 0.2, hx('#101838'), hx('#28386a'), -999, 152);
+    // mid pines (parallax 0.5)
+    {
+      const period = 58;
+      for (let k = -1; k < 8; k++) {
+        const wx = k * period + 21, x = Math.round(wx - s * 0.5);
+        if (x < -20 || x > 340) continue;
+        const idx = ((Math.round(wx) / period) | 0) + 7;
+        px.pine(x, 148 + (idx % 2) * 3, 20 + (idx * 13) % 12, hx('#0a1430'), hx('#1a2a52'));
+      }
+    }
+    // ground path
+    for (let x = 0; x < 320; x++) {
+      for (let y = 150; y < 180; y++) px.put(x, y, y === 150 ? hx('#1c2c50') : y < 158 ? hx('#0c1830') : hx('#060c1e'));
+      if ((x + Math.round(s)) % 23 === 3) px.put(x, 152 + ((x * 7) % 5), hx('#16243f'));
+    }
+
+    // hero walks (2-frame cycle), contact shadow
+    const heroX = 96, heroY = 150 - 44 - (Math.floor(T * 8) % 2 ? 2 : 0);
+    for (let x = heroX + 4; x < heroX + 26; x++) px.put(x, 151, hx('#04081a'));
+    px.sprite(Math.floor(T * 8) % 2 ? HERO_WALK : HERO, HERO_PAL, heroX, heroY, false, 2);
+    const flap = Math.floor(T * 6) % 2;
+    const scarf = flap ? [[-1, 0], [-2, 0], [-3, 1], [-4, 1], [-5, 1], [-6, 2], [-7, 2]] : [[-1, 0], [-2, 1], [-3, 1], [-4, 0], [-5, 0], [-6, 1], [-7, 0]];
+    scarf.forEach(([dx, dy], i) => { px.put(heroX + 10 + dx, heroY + 16 + dy, P.winP); px.put(heroX + 10 + dx, heroY + 18 + dy, i > 3 ? hx('#e8687a') : P.winP); px.put(heroX + 10 + dx, heroY + 20 + dy, P.ink); });
+
+    // NOVA leads, thruster light pools on the path below it
+    const dX = 142, dY = Math.round(96 + Math.sin(T * 3) * 3);
+    px.sprite(DRONE, DRONE_PAL, dX, dY, false, 3);
+    const th = Math.floor(T * 10) % 2;
+    px.put(dX + 6, dY + 30, th ? P.cyan : P.coreMid); px.put(dX + 22, dY + 30, th ? P.cyan : P.coreMid);
+    for (let j = 0; j < 4; j++) for (let i = -12 + j; i <= 12 - j; i++) {
+      const a = 0.5 - j * 0.12;
+      if (a > bay(dX + 10 + i, 148 + j)) px.put(dX + 10 + i, 148 + j, hx('#2a4a7a'));
+    }
+
+    // fireflies: drift, pulse, gather toward the hero when close
+    for (let i = 0; i < 12; i++) {
+      const wx = ((i * 53 + 20 - s * 0.9) % 340 + 340) % 340 - 10;
+      const y = 58 + (i * 37) % 82 + Math.round(Math.sin(T * 1.3 + i * 1.9) * 4);
+      const x = Math.round(wx + Math.sin(T * 0.8 + i) * 6);
+      const dist = Math.abs(x - (heroX + 15)) + Math.abs(y - (heroY + 10));
+      const pull = dist < 60 ? Math.round((60 - dist) / 8) : 0;
+      const gx = heroX + 15 + (x < heroX + 15 ? -14 : 14), gy2 = heroY + 4;
+      const fx = x + Math.round(((gx - x) / 60) * pull), fy = y + Math.round(((gy2 - y) / 60) * pull);
+      if (Math.sin(T * 2.2 + i * 1.7) > 0.1) {
+        px.put(fx, fy, P.goldHi);
+        for (let hI = 1; hI <= 2; hI++) { if (0.6 - hI * 0.25 > bay(fx - hI, fy)) px.put(fx - hI, fy, P.gold); if (0.6 - hI * 0.25 > bay(fx + hI, fy)) px.put(fx + hI, fy, P.gold); if (0.6 - hI * 0.25 > bay(fx, fy - hI)) px.put(fx, fy - hI, P.gold); if (0.6 - hI * 0.25 > bay(fx, fy + hI)) px.put(fx, fy + hI, P.gold); }
+      }
+    }
+
+    // near foreground pines (parallax 1.3, dark silhouettes)
+    {
+      const period = 120;
+      for (let k = 0; k < 4; k++) {
+        const x = Math.round(k * period + 60 - s * 1.3);
+        if (x < -24 || x > 344) continue;
+        px.pine(x, 184, 44, hx('#060a1c'), hx('#101c3c'));
+      }
+    }
+
+    // HUD
+    for (let hI = 0; hI < 4; hI++) px.sprite(HEART, { K: '#0a0618', R: hI < 3 ? '#ff3a5a' : '#4a2a5a', W: hI < 3 ? '#ffd0e0' : '#6a4a7a' }, 8 + hI * 9, 7, false);
+    px.text('SCORE', 236, 6, P.white, P.ink, F.px(8));
+    px.text('004733', 236, 15, P.gold, P.ink, F.px(8));
+
+    // snow onset 4.5, whiteout out 5.5–6.0 (continues as Scene04's whiteout-in)
+    if (T >= 4.5) {
+      const dens = p(4.5, 6.0), r = 91;
+      for (let i = 0; i < 60; i++) {
+        if (i / 60 > dens) break;
+        const x = ((i * 67 + T * (40 + (i % 3) * 30)) % 340 + 340) % 340 - 10;
+        const y = (i * 41 + T * (24 + (i % 4) * 12)) % 190 - 5;
+        px.put(x, y, P.white);
+      }
+    }
+    if (T >= 5.5) px.whiteout(p(5.5, 6.0));
+    // swirl in 0–0.5 (continues Scene02's)
+    if (T < 0.5) px.swirl(1 - T / 0.5, 1);
+
+    px.blit(ctx, 1920, 1080);
+  },
+};
+</script>
+</body>
+</html>
